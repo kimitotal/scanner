@@ -257,12 +257,20 @@ function load(wb, name) {
     if (!rows.length) return show('bad', 'That file has no open lines on its first sheet.');
     const headers = Object.keys(rows[0]);
     const guess = re => headers.find(h => re.test(h));
-    S = { headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
+    const next = { headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
       altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', labelCol: guess(/label/i) || '', scans: {}, unknown: [], skipped: all.length - rows.length };
-    show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`);
-    save(); render();
+    const apply = () => { S = next; $('fix').innerHTML = ''; show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`); save(); render(); };
+    // a new file wipes the current scans: never do that silently
+    const had = Object.keys(S.scans).length + S.unknown.length;
+    if (!had) return apply();
+    show('over', `⚠ Loading ${name} replaces the current order and clears ${had} scanned lines. Export them first if you still need them.`);
+    $('fix').innerHTML = '<button id="keepBtn">Keep current order</button> <button class="primary" id="replaceBtn">Replace and clear scans</button>';
+    $('replaceBtn').onclick = apply;
+    $('keepBtn').onclick = () => { $('fix').innerHTML = ''; show('', 'Kept the current order and its scans.'); };
   }
 }
+// ask Chrome not to delete this app's saved scans when the phone runs low on storage
+try { navigator.storage?.persist?.(); } catch {}
 // current pallet stays until changed, also across app restarts
 try { $('pallet').value = localStorage.getItem('pallet') || ''; } catch {}
 $('pallet').oninput = e => { try { localStorage.setItem('pallet', e.target.value); } catch {} };
