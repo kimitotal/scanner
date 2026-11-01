@@ -127,6 +127,11 @@ const EXAMPLE = {
 let S = structuredClone(EXAMPLE);
 const save = () => { try { localStorage.setItem('scanState', JSON.stringify(S)); } catch {} };
 try { const s = JSON.parse(localStorage.getItem('scanState')); if (s && s.rows) S = s; } catch {}
+// orders saved by an older version lack newer column picks; fill them in so no reload is needed
+{
+  const guess = re => S.headers.find(h => re.test(h)) || '';
+  S.orderCol ??= guess(/^order\s*no/i); S.posCol ??= guess(/^pos/i); S.labelCol ??= guess(/label/i);
+}
 
 const norm = s => String(s ?? '').toUpperCase().replace(/[\s\-\/\.]/g, '');
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
