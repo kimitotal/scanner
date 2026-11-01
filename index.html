@@ -46,7 +46,6 @@
   th { color: var(--muted); font-weight: 600; }
   tr.ok td { background: var(--ok); } tr.part td { background: var(--part); } tr.over td { background: var(--warn); }
   .mono { font-family: var(--mono); }
-  #unknown { font-family: var(--mono); font-size: 14px; }
   #result { white-space: pre-line; }
   #result.done { font-size: 26px; outline: 3px solid var(--ok-fg); }
   #orders { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-variant-numeric: tabular-nums; }
@@ -136,8 +135,6 @@
 </div>
 <div id="camInfo" class="hint"></div>
 
-<h2>Not on order</h2>
-<div id="unknown">None</div>
 
 <h2>Order lines</h2>
 <div class="row"><input id="find" type="search" placeholder="Search all lines: part, batch, description, order, pallet…" autocomplete="off" aria-label="Search all lines"><span id="findInfo" class="hint"></span></div>
@@ -154,7 +151,7 @@ const EXAMPLE = {
     { 'Part Number': 'MS21042L3', Description: 'Nut, self-locking (example)', Qty: 50 },
     { 'Part Number': '2315M20-3', Description: 'Hose assembly (example)', Qty: 1 },
   ],
-  partCol: 'Part Number', qtyCol: 'Qty', scans: {}, unknown: [],
+  partCol: 'Part Number', qtyCol: 'Qty', scans: {},
 };
 let S = structuredClone(EXAMPLE);
 const save = () => { try { localStorage.setItem('scanState', JSON.stringify(S)); } catch {} };
@@ -225,8 +222,7 @@ function handle(code) {
   const pallet = $('pallet').value.trim() || '(none)';
   $('fix').innerHTML = '';
   if (!hits.length) {
-    S.unknown.push({ code, pallet });
-    show('bad', `✗ ${code}: not on order`);
+    show('bad', `✗ ${code}: not on order (ignored)`);
   } else if (hits.every(isDone)) {
     const i = hits.find(h => palletOf(h) !== pallet) ?? hits[0];
     show('over', `⚠ Already scanned: ${describe([i])} · pallet ${palletOf(i)}`);
@@ -285,7 +281,7 @@ function render() {
     return `<tr class="${isDone(i) ? 'ok' : ''}"${match ? '' : ' hidden'}><td>${isDone(i) ? '✓' : ''}</td><td><input class="palIn" data-i="${i}" value="${esc(palletOf(i))}" aria-label="Pallet for line ${i + 1}" autocomplete="off"></td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}</tr>`;
   }).join('');
   $('tbl').innerHTML = `<tr><th></th><th>Pallet</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr>` + body;
-  $('stats').textContent = `${done} of ${S.rows.length} lines complete · ${S.unknown.length} unknown scans` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
+  $('stats').textContent = `${done} of ${S.rows.length} lines complete` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
   $('findInfo').textContent = q ? `${shownRows} of ${S.rows.length} lines match` : '';
   const pick = $('palSel').value;
   $('palSel').innerHTML = '<option value="">All pallets</option>' + palletList().map(p => `<option${p === pick ? ' selected' : ''}>${esc(p)}</option>`).join('');
@@ -295,7 +291,6 @@ function render() {
     const d = idx.filter(isDone).length;
     return `<span class="ord${d === idx.length ? ' ok' : ''}">${d === idx.length ? '✓ ' : ''}${esc(o)} · ${d}/${idx.length}</span>`;
   }).join('');
-  $('unknown').innerHTML = S.unknown.length ? S.unknown.map(u => `${esc(u.code)} (${esc(u.pallet)})`).join('<br>') : 'None';
 }
 
 // Two-tap confirm, since the viewer blocks confirm() dialogs
@@ -328,10 +323,10 @@ function load(wb, name) {
     const headers = Object.keys(rows[0]);
     const guess = re => headers.find(h => re.test(h));
     const next = { headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
-      altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', labelCol: guess(/label/i) || '', scans: {}, unknown: [], skipped: all.length - rows.length };
+      altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', labelCol: guess(/label/i) || '', scans: {}, skipped: all.length - rows.length };
     const apply = () => { S = next; $('fix').innerHTML = ''; show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`); save(); render(); };
     // a new file wipes the current scans: never do that silently
-    const had = Object.keys(S.scans).length + S.unknown.length;
+    const had = Object.keys(S.scans).length;
     if (!had) return apply();
     show('over', `⚠ Loading ${name} replaces the current order and clears ${had} scanned lines. Export them first if you still need them.`);
     $('fix').innerHTML = '<button id="keepBtn">Keep current order</button> <button class="primary" id="replaceBtn">Replace and clear scans</button>';
@@ -371,7 +366,7 @@ $('sugg').onclick = e => {
 
 // Pallets in natural order (1, 2, 10 — not 1, 10, 2)
 const byNum = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
-const palletList = () => [...new Set([...S.rows.flatMap((r, i) => isDone(i) ? [palletOf(i)] : []), ...S.unknown.map(u => u.pallet)])].sort(byNum);
+const palletList = () => [...new Set(S.rows.flatMap((r, i) => isDone(i) ? [palletOf(i)] : []))].sort(byNum);
 
 // Printable content list per pallet: one page each, lines sorted by order then pos
 $('printBtn').onclick = () => {
@@ -384,12 +379,10 @@ $('printBtn').onclick = () => {
     const lines = S.rows.map((r, i) => i).filter(i => isDone(i) && palletOf(i) === p)
       .sort((a, b) => byNum(S.rows[a][S.orderCol] ?? '', S.rows[b][S.orderCol] ?? '') || byNum(S.rows[a][S.posCol] ?? '', S.rows[b][S.posCol] ?? ''));
     const orders = S.orderCol ? [...new Set(lines.map(i => S.rows[i][S.orderCol]))] : [];
-    const extra = S.unknown.filter(u => u.pallet === p);
     return `<div class="plist"><h1>Pallet ${esc(p)}</h1>
       <div class="meta">${lines.length} line${lines.length === 1 ? '' : 's'}${orders.length ? ` · orders ${orders.map(esc).join(', ')}` : ''} · printed ${esc(now)}</div>
       <table><thead><tr><th>#</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
       <tbody>${lines.map((i, n) => `<tr><td>${n + 1}</td>${cols.map(h => `<td>${esc(S.rows[i][h])}</td>`).join('')}</tr>`).join('')}</tbody></table>
-      ${extra.length ? `<p><b>Also on this pallet, not on order:</b> ${extra.map(u => esc(u.code)).join(', ')}</p>` : ''}
       <div class="sign"><span>Checked by: ____________________</span><span>Date: ____________</span></div></div>`;
   }).join('');
   window.print();
@@ -413,7 +406,7 @@ const showRaw = codes => { $('raw').innerHTML = codes.length ? 'Barcode said: ' 
 const submit = () => { showRaw([$('scan').value]); handle($('scan').value); $('scan').value = ''; $('sugg').innerHTML = ''; $('scan').focus(); };
 $('scan').onkeydown = e => { if (e.key === 'Enter') submit(); };
 $('go').onclick = submit;
-$('reset').onclick = e => armed(e.target, 'Clear scans', () => { S.scans = {}; S.unknown = []; save(); render(); show('', 'Scans cleared.'); });
+$('reset').onclick = e => armed(e.target, 'Clear scans', () => { S.scans = {}; save(); render(); show('', 'Scans cleared.'); });
 
 // Photo scan: camera app takes a picture, we decode barcodes from it.
 // Native BarcodeDetector (Android Chrome) returns every code on a label; otherwise html5-qrcode reads one.
@@ -512,7 +505,6 @@ $('photo').onchange = async e => {
 
 $('export').onclick = async () => {
   const out = S.rows.map((r, i) => ({ ...r, Check: isDone(i) ? 'OK' : 'NOT SCANNED', Pallet: palletOf(i) }));
-  S.unknown.forEach(u => out.push({ [S.partCol]: u.code, Check: 'NOT ON ORDER', Pallet: u.pallet }));
   const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(out));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
