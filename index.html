@@ -212,14 +212,15 @@ function armed(btn, label, action) {
 
 $('file').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { load(XLSX.read(await f.arrayBuffer()), f.name); }
+  // raw: true keeps CSV text as text, so serial "091" stays "091" (not the number 91)
+  try { load(XLSX.read(await f.arrayBuffer(), { raw: true }), f.name); }
   catch (err) { show('bad', `Could not read that file: ${err.message}`); }
   e.target.value = '';
 };
 // Excel copies as tab-separated text, the CSV as comma-separated; SheetJS reads both from a string
 $('pasteGo').onclick = () => {
   const t = $('paste').value.trim(); if (!t) return show('bad', 'Paste the rows into the box first.');
-  try { load(XLSX.read(t, { type: 'string' }), 'pasted rows'); $('paste').value = ''; $('pasteBox').open = false; }
+  try { load(XLSX.read(t, { type: 'string', raw: true }), 'pasted rows'); $('paste').value = ''; $('pasteBox').open = false; }
   catch (err) { show('bad', `Could not read the pasted rows: ${err.message}`); }
 };
 function load(wb, name) {
