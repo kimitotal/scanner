@@ -61,6 +61,7 @@
   body.scanning .setup { display: none !important; }
   body.scanning #result { margin-top: 8px; }
   #fix:not(:empty) { margin: 6px 0; }
+  .palIn { width: 6.5em; font: 500 14px var(--mono); padding: 4px 6px; }
   [hidden] { display: none !important; }
   * { box-sizing: border-box; }
   details { flex-basis: 100%; } summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
@@ -211,13 +212,17 @@ function render() {
   fill($('colPart'), S.partCol); fill($('colAlt'), S.altCol);
   $('colAlt').insertAdjacentHTML('afterbegin', `<option value=""${S.altCol ? '' : ' selected'}>(none)</option>`);
   // hide columns that hold the same value on every line (order no., customer, currency…); export keeps them
-  const cols = S.headers.filter(h => [S.partCol, S.qtyCol, S.altCol].includes(h) || S.rows.length < 2 || new Set(S.rows.map(r => String(r[h]).trim())).size > 1);
+  const shown = S.headers.filter(h => [S.partCol, S.qtyCol, S.altCol].includes(h) || S.rows.length < 2 || new Set(S.rows.map(r => String(r[h]).trim())).size > 1);
+  // the columns you look for first go first: order, pos, part, batch/serial, label
+  const key = [S.orderCol, S.posCol, S.partCol, S.altCol, S.labelCol].filter(h => h && shown.includes(h));
+  const cols = [...new Set([...key, ...shown])];
   let done = 0;
   const body = S.rows.map((r, i) => {
     if (isDone(i)) done++;
-    return `<tr class="${isDone(i) ? 'ok' : ''}"><td>${i + 1}</td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}<td>${isDone(i) ? '✓' : ''}</td><td>${esc(palletOf(i))}</td></tr>`;
+    // ✓ and Pallet first so they're visible on a phone without scrolling sideways
+    return `<tr class="${isDone(i) ? 'ok' : ''}"><td>${isDone(i) ? '✓' : ''}</td><td><input class="palIn" data-i="${i}" value="${esc(palletOf(i))}" aria-label="Pallet for line ${i + 1}" autocomplete="off"></td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}</tr>`;
   }).join('');
-  $('tbl').innerHTML = `<tr><th>#</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}<th>Scanned</th><th>Pallet</th></tr>` + body;
+  $('tbl').innerHTML = `<tr><th></th><th>Pallet</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr>` + body;
   $('stats').textContent = `${done} of ${S.rows.length} lines complete · ${S.unknown.length} unknown scans` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
   const orders = S.orderCol ? [...new Set(S.rows.map(r => r[S.orderCol]))] : [];
   $('orders').innerHTML = orders.map(o => {
@@ -271,6 +276,14 @@ function load(wb, name) {
 }
 // ask Chrome not to delete this app's saved scans when the phone runs low on storage
 try { navigator.storage?.persist?.(); } catch {}
+// Pallet cell in the table: typing a pallet sets/changes it and marks the line checked; clearing it un-marks the line
+$('tbl').onchange = e => {
+  const i = e.target.dataset?.i; if (i == null) return;
+  const v = e.target.value.trim();
+  if (v) S.scans[i] = [{ pallet: v, n: 1 }]; else delete S.scans[i];
+  show(v ? 'ok' : '', v ? `✓ ${S.rows[i][S.partCol]} set to pallet ${v}` : `${S.rows[i][S.partCol]} un-marked`);
+  save(); render();
+};
 // current pallet stays until changed, also across app restarts
 try { $('pallet').value = localStorage.getItem('pallet') || ''; } catch {}
 $('pallet').oninput = e => { try { localStorage.setItem('pallet', e.target.value); } catch {} };
