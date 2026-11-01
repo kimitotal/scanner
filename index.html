@@ -131,16 +131,17 @@ try { const s = JSON.parse(localStorage.getItem('scanState')); if (s && s.rows) 
 const norm = s => String(s ?? '').toUpperCase().replace(/[\s\-\/\.]/g, '');
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-// Batch/serial no. pins one exact line, so try it first; then part no.
-// Aviation labels (ATA Spec 2000 / MH10) often prefix part # with "1P" or "P"; try raw, then stripped.
+// Batch/serial no. pins one exact line, so try it first; then Label No.; then part no.
+// Labels add a prefix: "LB" before Label No. ("LB2134060"), "1P"/"P"/"S" per ATA Spec 2000.
+// Every column gets the code as scanned before any column gets it stripped.
 function findRows(code) {
   const tries = [norm(code)];
-  const m = norm(code).match(/^1?[PS](.+)$/);
+  const m = norm(code).match(/^(?:LB|1P|P|S)(.+)$/);
   if (m) tries.push(m[1]);
-  // serialised parts carry the Label No. on their barcode; it pins the line like a batch no. does
-  for (const col of [S.altCol, S.labelCol, S.partCol].filter(Boolean)) {
-    for (const t of tries) {
-      if (t === '0') continue; // Label No. is "0" on unlabelled lines
+  for (const t of tries) {
+    if (t === '0') continue; // Label No. is "0" on unlabelled lines
+    // serialised parts carry the Label No. on their barcode; it pins the line like a batch no. does
+    for (const col of [S.altCol, S.labelCol, S.partCol].filter(Boolean)) {
       const hits = S.rows.map((r, i) => i).filter(i => norm(S.rows[i][col]) === t);
       if (hits.length) return Object.assign(hits, { byBatch: col !== S.partCol });
     }
