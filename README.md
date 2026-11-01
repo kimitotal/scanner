@@ -1,0 +1,2 @@
+# scanner
+darbo skaneris
