@@ -62,6 +62,24 @@
   body.scanning #result { margin-top: 8px; }
   #fix:not(:empty) { margin: 6px 0; }
   .palIn { width: 6.5em; font: 500 14px var(--mono); padding: 4px 6px; }
+  /* printed pallet content lists: only #print shows on paper, one pallet per page */
+  #print { display: none; }
+  @media print {
+    @page { margin: 12mm; }
+    :root { padding: 0 !important; }
+    body { background: #fff !important; color: #000 !important; padding: 0 !important; font-size: 10pt; }
+    body > *:not(#print) { display: none !important; }
+    #print { display: block; }
+    .plist { break-after: page; }
+    .plist:last-child { break-after: auto; }
+    .plist h1 { font-size: 22pt; margin: 0 0 2mm; }
+    .plist .meta { margin-bottom: 4mm; }
+    .plist table { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
+    .plist th, .plist td { border: 0.5pt solid #000; padding: 1.5mm 2mm; text-align: left; white-space: normal; background: none !important; color: #000 !important; }
+    .plist thead { display: table-header-group; }
+    .plist tr { break-inside: avoid; }
+    .plist .sign { margin-top: 10mm; display: flex; gap: 20mm; }
+  }
   [hidden] { display: none !important; }
   * { box-sizing: border-box; }
   details { flex-basis: 100%; } summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
@@ -93,6 +111,8 @@
   <input type="file" id="photo" accept="image/*" capture="environment" hidden>
   <button id="photoBtn">Photo scan</button>
   <button id="export">Export CSV</button>
+  <select id="palSel" aria-label="Pallet to print"></select>
+  <button id="printBtn">Print pallet list</button>
   <button id="reset">Clear scans</button>
 </div>
 <div id="reader"></div>
@@ -114,6 +134,7 @@
 
 <h2>Order lines</h2>
 <div class="wrap"><table id="tbl"></table></div>
+<section id="print"></section>
 <p class="hint">Scans are saved on this device only. Export CSV before switching phones or clearing browser data.</p>
 
 <script>
@@ -224,6 +245,8 @@ function render() {
   }).join('');
   $('tbl').innerHTML = `<tr><th></th><th>Pallet</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr>` + body;
   $('stats').textContent = `${done} of ${S.rows.length} lines complete · ${S.unknown.length} unknown scans` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
+  const pick = $('palSel').value;
+  $('palSel').innerHTML = '<option value="">All pallets</option>' + palletList().map(p => `<option${p === pick ? ' selected' : ''}>${esc(p)}</option>`).join('');
   const orders = S.orderCol ? [...new Set(S.rows.map(r => r[S.orderCol]))] : [];
   $('orders').innerHTML = orders.map(o => {
     const idx = S.rows.map((r, i) => i).filter(i => S.rows[i][S.orderCol] === o);
@@ -276,6 +299,32 @@ function load(wb, name) {
 }
 // ask Chrome not to delete this app's saved scans when the phone runs low on storage
 try { navigator.storage?.persist?.(); } catch {}
+// Pallets in natural order (1, 2, 10 — not 1, 10, 2)
+const byNum = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+const palletList = () => [...new Set([...S.rows.flatMap((r, i) => isDone(i) ? [palletOf(i)] : []), ...S.unknown.map(u => u.pallet)])].sort(byNum);
+
+// Printable content list per pallet: one page each, lines sorted by order then pos
+$('printBtn').onclick = () => {
+  const list = $('palSel').value ? [$('palSel').value] : palletList();
+  if (!list.length) return show('bad', 'Nothing scanned yet, so there is no pallet list to print.');
+  const desc = S.headers.find(h => /desc/i.test(h));
+  const cols = [S.orderCol, S.posCol, S.partCol, desc, S.altCol, S.labelCol, S.qtyCol].filter((h, k, a) => h && a.indexOf(h) === k);
+  const now = new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  $('print').innerHTML = list.map(p => {
+    const lines = S.rows.map((r, i) => i).filter(i => isDone(i) && palletOf(i) === p)
+      .sort((a, b) => byNum(S.rows[a][S.orderCol] ?? '', S.rows[b][S.orderCol] ?? '') || byNum(S.rows[a][S.posCol] ?? '', S.rows[b][S.posCol] ?? ''));
+    const orders = S.orderCol ? [...new Set(lines.map(i => S.rows[i][S.orderCol]))] : [];
+    const extra = S.unknown.filter(u => u.pallet === p);
+    return `<div class="plist"><h1>Pallet ${esc(p)}</h1>
+      <div class="meta">${lines.length} line${lines.length === 1 ? '' : 's'}${orders.length ? ` · orders ${orders.map(esc).join(', ')}` : ''} · printed ${esc(now)}</div>
+      <table><thead><tr><th>#</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${lines.map((i, n) => `<tr><td>${n + 1}</td>${cols.map(h => `<td>${esc(S.rows[i][h])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      ${extra.length ? `<p><b>Also on this pallet, not on order:</b> ${extra.map(u => esc(u.code)).join(', ')}</p>` : ''}
+      <div class="sign"><span>Checked by: ____________________</span><span>Date: ____________</span></div></div>`;
+  }).join('');
+  window.print();
+};
+
 // Pallet cell in the table: typing a pallet sets/changes it and marks the line checked; clearing it un-marks the line
 $('tbl').onchange = e => {
   const i = e.target.dataset?.i; if (i == null) return;
