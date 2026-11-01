@@ -61,6 +61,12 @@
   body.scanning .setup { display: none !important; }
   body.scanning #result { margin-top: 8px; }
   #fix:not(:empty) { margin: 6px 0; }
+  button.big { font-size: 20px; padding: 14px 22px; }
+  #sugg { display: grid; gap: 4px; margin: -4px 0 10px; }
+  #sugg button { text-align: left; font: 400 14px var(--sans); padding: 8px 10px; overflow-wrap: anywhere; }
+  #sugg button b { font-family: var(--mono); }
+  #sugg .done { opacity: .6; }
+  #find { flex: 1 1 260px; min-width: 0; }
   .palIn { width: 6.5em; font: 500 14px var(--mono); padding: 4px 6px; }
   /* printed pallet content lists: only #print shows on paper, one pallet per page */
   #print { display: none; }
@@ -107,6 +113,7 @@
   <button id="go">Check</button>
   <button class="primary" id="liveBtn">Start camera</button>
 </div>
+<div id="sugg"></div>
 <div class="row setup">
   <input type="file" id="photo" accept="image/*" capture="environment" hidden>
   <button id="photoBtn">Photo scan</button>
@@ -133,6 +140,7 @@
 <div id="unknown">None</div>
 
 <h2>Order lines</h2>
+<div class="row"><input id="find" type="search" placeholder="Search all lines: part, batch, description, order, pallet…" autocomplete="off" aria-label="Search all lines"><span id="findInfo" class="hint"></span></div>
 <div class="wrap"><table id="tbl"></table></div>
 <section id="print"></section>
 <p class="hint">Scans are saved on this device only. Export CSV before switching phones or clearing browser data.</p>
@@ -183,10 +191,36 @@ const palletOf = i => (S.scans[i] || []).map(s => s.pallet).join(', ');
 const orderDone = o => S.rows.every((r, i) => r[S.orderCol] !== o || isDone(i));
 
 function show(cls, text) { $('result').className = cls; $('result').textContent = text; }
+const qtyOf = i => Number(S.rows[i][S.qtyCol]) || 1;
+// what you need to see on a scan: part · BN/SN · qty · T order + pos
+function describe(lines) {
+  const r = S.rows[lines[0]], order = S.orderCol ? r[S.orderCol] : '';
+  const where = S.posCol ? `${order} pos ${lines.map(h => S.rows[h][S.posCol]).join(', ')}` : `line ${lines.map(h => h + 1).join(', ')}`;
+  const bn = S.altCol && r[S.altCol] ? ` · BN/SN ${r[S.altCol]}` : '';
+  return `${r[S.partCol]}${bn} · qty ${lines.reduce((a, h) => a + qtyOf(h), 0)} · ${where}`;
+}
+let pending = null; // lines waiting for a qty confirmation
+
+function tick(lines, pallet) {
+  lines.forEach(h => { S.scans[h] = [{ pallet, n: 1 }]; });
+  const order = S.orderCol ? S.rows[lines[0]][S.orderCol] : '';
+  const msg = `✓ ${describe(lines)} · pallet ${pallet}`;
+  if (order && orderDone(order)) {
+    const n = S.rows.filter(r => r[S.orderCol] === order).length;
+    show('ok done', `✓ ORDER ${order} COMPLETE · all ${n} lines scanned\n${msg}`);
+    try { navigator.vibrate?.([300, 150, 300]); } catch {}
+  } else {
+    show('ok', msg);
+    try { navigator.vibrate?.(80); } catch {}
+  }
+  save(); render();
+}
 
 function handle(code) {
   code = String(code).trim();
   if (!code) return;
+  // a qty confirmation is open: don't let the next scan slip past it
+  if (pending) { $('raw').textContent = `⏸ Confirm or cancel the quantity first (${code} not checked)`; try { navigator.vibrate?.([60, 60, 60]); } catch {} return; }
   const hits = findRows(code);
   const pallet = $('pallet').value.trim() || '(none)';
   $('fix').innerHTML = '';
@@ -195,7 +229,7 @@ function handle(code) {
     show('bad', `✗ ${code}: not on order`);
   } else if (hits.every(isDone)) {
     const i = hits.find(h => palletOf(h) !== pallet) ?? hits[0];
-    show('over', `⚠ Already scanned: ${S.rows[i][S.altCol || S.partCol]} (${S.rows[i][S.partCol]}) on pallet ${palletOf(i)}`);
+    show('over', `⚠ Already scanned: ${describe([i])} · pallet ${palletOf(i)}`);
     // wrong pallet? re-scan with the right pallet set, then move the whole batch group in one tap
     if (palletOf(i) !== pallet) {
       const group = hits.filter(h => !S.orderCol || S.rows[h][S.orderCol] === S.rows[i][S.orderCol]);
@@ -213,19 +247,22 @@ function handle(code) {
     const order = S.orderCol ? S.rows[i][S.orderCol] : '';
     // one batch label covers every line of that batch in the same T order; another T order needs its own scan
     const lines = hits.byBatch ? hits.filter(h => !isDone(h) && (!S.orderCol || S.rows[h][S.orderCol] === order)) : [i];
-    lines.forEach(h => { S.scans[h] = [{ pallet, n: 1 }]; });
-    const where = S.posCol ? `${order} pos ${lines.map(h => S.rows[h][S.posCol]).join(', ')}` : `line ${lines.map(h => h + 1).join(', ')}`;
-    const msg = `✓ ${S.rows[i][S.partCol]} · ${where} · pallet ${pallet}`;
-    if (order && orderDone(order)) {
-      const n = S.rows.filter(r => r[S.orderCol] === order).length;
-      show('ok done', `✓ ORDER ${order} COMPLETE · all ${n} lines scanned\n${msg}`);
-      try { navigator.vibrate?.([300, 150, 300]); } catch {}
-      save(); render(); return;
-    }
-    show('ok', msg);
+    return checkLines(lines, pallet);
   }
   try { navigator.vibrate?.(hits.length ? 80 : [200, 100, 200]); } catch {}
   save(); render();
+}
+
+function checkLines(lines, pallet) {
+  const qty = lines.reduce((a, h) => a + qtyOf(h), 0);
+  if (qty <= 1) return tick(lines, pallet);
+  // more than one piece: tick only after you confirm they're all there
+  pending = lines;
+  show('over', `? ${describe(lines)} · pallet ${pallet}\nAre all ${qty} pcs there?`);
+  $('fix').innerHTML = `<button class="primary big" id="qtyOk">Confirm ${qty} pcs</button> <button id="qtyNo">Cancel</button>`;
+  $('qtyOk').onclick = () => { pending = null; $('fix').innerHTML = ''; tick(lines, pallet); };
+  $('qtyNo').onclick = () => { pending = null; $('fix').innerHTML = ''; show('', `Not checked: ${describe(lines)}`); };
+  try { navigator.vibrate?.([80, 80, 80]); } catch {}
 }
 
 function render() {
@@ -237,14 +274,19 @@ function render() {
   // the columns you look for first go first: order, pos, part, batch/serial, label
   const key = [S.orderCol, S.posCol, S.partCol, S.altCol, S.labelCol].filter(h => h && shown.includes(h));
   const cols = [...new Set([...key, ...shown])];
-  let done = 0;
+  let done = 0, shownRows = 0;
+  const q = norm($('find').value);
   const body = S.rows.map((r, i) => {
     if (isDone(i)) done++;
+    // search: any column or the pallet contains the text (dashes, spaces, dots ignored)
+    const match = !q || [...Object.values(r), palletOf(i)].some(v => norm(v).includes(q));
+    if (match) shownRows++;
     // ✓ and Pallet first so they're visible on a phone without scrolling sideways
-    return `<tr class="${isDone(i) ? 'ok' : ''}"><td>${isDone(i) ? '✓' : ''}</td><td><input class="palIn" data-i="${i}" value="${esc(palletOf(i))}" aria-label="Pallet for line ${i + 1}" autocomplete="off"></td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}</tr>`;
+    return `<tr class="${isDone(i) ? 'ok' : ''}"${match ? '' : ' hidden'}><td>${isDone(i) ? '✓' : ''}</td><td><input class="palIn" data-i="${i}" value="${esc(palletOf(i))}" aria-label="Pallet for line ${i + 1}" autocomplete="off"></td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}</tr>`;
   }).join('');
   $('tbl').innerHTML = `<tr><th></th><th>Pallet</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr>` + body;
   $('stats').textContent = `${done} of ${S.rows.length} lines complete · ${S.unknown.length} unknown scans` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
+  $('findInfo').textContent = q ? `${shownRows} of ${S.rows.length} lines match` : '';
   const pick = $('palSel').value;
   $('palSel').innerHTML = '<option value="">All pallets</option>' + palletList().map(p => `<option${p === pick ? ' selected' : ''}>${esc(p)}</option>`).join('');
   const orders = S.orderCol ? [...new Set(S.rows.map(r => r[S.orderCol]))] : [];
@@ -299,6 +341,34 @@ function load(wb, name) {
 }
 // ask Chrome not to delete this app's saved scans when the phone runs low on storage
 try { navigator.storage?.persist?.(); } catch {}
+$('find').oninput = () => render();
+
+// Typing suggestions: from 3 characters, list lines whose batch/serial, label or part no. contains the text
+const codeOf = i => [S.altCol, S.labelCol, S.partCol].map(c => c && S.rows[i][c]).find(v => v && v !== '0');
+$('scan').oninput = () => {
+  const q = norm($('scan').value);
+  if (q.length < 3) return $('sugg').innerHTML = '';
+  const cols = [S.altCol, S.labelCol, S.partCol].filter(Boolean);
+  const desc = S.headers.find(h => /desc/i.test(h));
+  const hits = S.rows.map((r, i) => i).filter(i => cols.some(c => S.rows[i][c] !== '0' && norm(S.rows[i][c]).includes(q)));
+  $('sugg').innerHTML = hits.slice(0, 8).map(i => {
+    const r = S.rows[i];
+    return `<button class="${isDone(i) ? 'done' : ''}" data-i="${i}"><b>${esc(r[S.partCol])}</b> · BN/SN ${esc(r[S.altCol] || '–')}${S.labelCol && r[S.labelCol] !== '0' ? ` · LB ${esc(r[S.labelCol])}` : ''} · qty ${qtyOf(i)}<br>${esc(desc ? r[desc] : '')} · ${esc(S.orderCol ? r[S.orderCol] : '')} pos ${esc(S.posCol ? r[S.posCol] : i + 1)}${isDone(i) ? ` · ✓ pallet ${esc(palletOf(i))}` : ''}</button>`;
+  }).join('') + (hits.length > 8 ? `<span class="hint">${hits.length - 8} more, keep typing</span>` : '') + (hits.length ? '' : '<span class="hint">No line matches</span>');
+};
+$('sugg').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const i = +b.dataset.i;
+  $('scan').value = ''; $('sugg').innerHTML = '';
+  showRaw([codeOf(i)]);
+  if (isDone(i) || pending) return handle(codeOf(i)); // already-scanned / move-pallet / pending rules
+  // tick exactly the tapped line, plus its batch siblings in the same T order
+  const r = S.rows[i];
+  const lines = S.altCol && r[S.altCol] ? S.rows.map((x, h) => h).filter(h => !isDone(h) && S.rows[h][S.altCol] === r[S.altCol] && (!S.orderCol || S.rows[h][S.orderCol] === r[S.orderCol])) : [i];
+  $('fix').innerHTML = '';
+  checkLines(lines, $('pallet').value.trim() || '(none)');
+};
+
 // Pallets in natural order (1, 2, 10 — not 1, 10, 2)
 const byNum = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
 const palletList = () => [...new Set([...S.rows.flatMap((r, i) => isDone(i) ? [palletOf(i)] : []), ...S.unknown.map(u => u.pallet)])].sort(byNum);
@@ -340,7 +410,7 @@ $('colPart').onchange =e => { S.partCol = e.target.value; save(); render(); };
 $('colAlt').onchange = e => { S.altCol = e.target.value; save(); render(); };
 // Show exactly what the scanner/photo read, so a wrong or partial code is visible
 const showRaw = codes => { $('raw').innerHTML = codes.length ? 'Barcode said: ' + codes.map(c => `<code class="mono">${esc(c)}</code>`).join(' · ') : ''; };
-const submit = () => { showRaw([$('scan').value]); handle($('scan').value); $('scan').value = ''; $('scan').focus(); };
+const submit = () => { showRaw([$('scan').value]); handle($('scan').value); $('scan').value = ''; $('sugg').innerHTML = ''; $('scan').focus(); };
 $('scan').onkeydown = e => { if (e.key === 'Enter') submit(); };
 $('go').onclick = submit;
 $('reset').onclick = e => armed(e.target, 'Clear scans', () => { S.scans = {}; S.unknown = []; save(); render(); show('', 'Scans cleared.'); });
