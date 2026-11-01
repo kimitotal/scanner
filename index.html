@@ -85,6 +85,10 @@
   <button id="reset">Clear scans</button>
 </div>
 <div id="reader"></div>
+<div class="row" id="camTools" hidden>
+  <label>Camera<select id="camSel"></select></label>
+  <label id="zoomBox" hidden>Zoom <span id="zoomVal">1×</span><input type="range" id="zoom" min="1" max="1" step="0.1" value="1"></label>
+</div>
 <div id="live" hidden></div>
 
 <div id="result">Example order loaded. Load your own file to replace it.</div>
@@ -239,20 +243,45 @@ const readerConfig = () => {
 // Live camera: reads continuously; the same code is ignored for 3 s so one label isn't counted over and over
 let cam = null, lastCode = '', lastAt = 0;
 async function stopCam() { if (cam) { try { await cam.stop(); } catch {} cam = null; } $('live').hidden = true; $('liveBtn').textContent = 'Start camera'; }
-$('liveBtn').onclick = async () => {
-  if (cam) return stopCam();
+const camId = () => { try { return localStorage.getItem('camId') || ''; } catch { return ''; } };
+async function startCam() {
   $('live').hidden = false; $('liveBtn').textContent = 'Stop camera';
   cam = new Html5Qrcode('live', readerConfig());
+  // the main 1x lens often can't focus up close; the picker lets you choose the 0.6 ultrawide instead
+  const id = camId();
+  const videoConstraints = { width: { ideal: 1920 }, height: { ideal: 1080 }, ...(id ? { deviceId: { exact: id } } : { facingMode: 'environment' }) };
   try {
-    await cam.start({ facingMode: 'environment' }, { fps: 10, qrbox: (w, h) => ({ width: Math.round(w * 0.9), height: Math.round(h * 0.45) }) }, code => {
+    await cam.start({ facingMode: 'environment' }, { fps: 10, videoConstraints, qrbox: (w, h) => ({ width: Math.round(w * 0.9), height: Math.round(h * 0.45) }) }, code => {
       if (code === lastCode && Date.now() - lastAt < 3000) return;
       lastCode = code; lastAt = Date.now();
       showRaw([code]); handle(code);
     });
   } catch (err) {
     await stopCam();
-    show('bad', `Camera did not start: ${err?.message || err}. Allow camera access for this site in Chrome settings.`);
+    if (id) { try { localStorage.removeItem('camId'); } catch {} }
+    return show('bad', `Camera did not start: ${err?.message || err}. Allow camera access for this site in Chrome settings, or pick another camera.`);
   }
+  // camera names are only readable after permission is granted, so fill the picker now
+  try {
+    const cams = await Html5Qrcode.getCameras();
+    const running = cam.getRunningTrackSettings?.().deviceId;
+    $('camSel').innerHTML = cams.map((c, n) => `<option value="${esc(c.id)}"${c.id === running ? ' selected' : ''}>${esc(c.label || 'Camera ' + (n + 1))}</option>`).join('');
+    $('camTools').hidden = cams.length < 2;
+  } catch {}
+  const caps = cam.getRunningTrackCapabilities?.() || {};
+  try { if (caps.focusMode?.includes('continuous')) await cam.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
+  $('zoomBox').hidden = !caps.zoom;
+  if (caps.zoom) {
+    Object.assign($('zoom'), { min: caps.zoom.min, max: Math.min(caps.zoom.max, 5), step: caps.zoom.step || 0.1, value: caps.zoom.min });
+    $('zoomVal').textContent = `${caps.zoom.min}×`;
+    $('camTools').hidden = false;
+  }
+}
+$('liveBtn').onclick = () => cam ? stopCam() : startCam();
+$('camSel').onchange = async e => { try { localStorage.setItem('camId', e.target.value); } catch {} if (cam) { await stopCam(); startCam(); } };
+$('zoom').oninput = e => {
+  $('zoomVal').textContent = `${(+e.target.value).toFixed(1)}×`;
+  cam?.applyVideoConstraints({ advanced: [{ zoom: +e.target.value }] }).catch(() => {});
 };
 // Full-size phone photos (12 MP) defeat the decoder; try shrunk copies, most likely size first.
 async function decodePhoto(f) {
