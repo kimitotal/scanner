@@ -53,8 +53,13 @@
   .ord { font: 500 13px var(--mono); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
   .ord.ok { background: var(--ok); color: var(--ok-fg); border-color: transparent; }
   #reader { display: none; }
-  #live { width: 100%; max-width: 480px; border-radius: 8px; overflow: hidden; }
-  #live video { width: 100% !important; }
+  #live { width: 100%; max-width: 480px; border-radius: 8px; overflow: hidden; position: relative; }
+  /* portrait phone video is very tall; crop to a short band so the result stays on screen */
+  #live video { display: block; width: 100%; height: 38vh; object-fit: cover; }
+  #live::after { content: ""; position: absolute; left: 8%; right: 8%; top: 50%; border-top: 2px solid rgba(255, 60, 60, .8); }
+  /* while the camera runs, hide setup so pallet, camera and result fit one screen */
+  body.scanning .setup { display: none !important; }
+  body.scanning #result { margin-top: 8px; }
   [hidden] { display: none !important; }
   * { box-sizing: border-box; }
   details { flex-basis: 100%; } summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
@@ -64,9 +69,9 @@
 </head>
 <body>
 
-<h1>Pallet Scan Check</h1>
+<h1 class="setup">Pallet Scan Check</h1>
 
-<div class="row">
+<div class="row setup">
   <label>Order file (Excel or CSV)<input type="file" id="file"></label>
   <label>Part number column<select id="colPart"></select></label>
   <details id="pasteBox"><summary>Or paste order rows</summary>
@@ -78,27 +83,28 @@
 
 <div class="row">
   <label>Current pallet<input id="pallet" placeholder="PLT-01" autocomplete="off"></label>
-  <input id="scan" placeholder="Scan or type part number" autocomplete="off" enterkeyhint="go" aria-label="Part number">
-  <button id="go">Check</button>
-</div>
-<div class="row">
-  <input type="file" id="photo" accept="image/*" capture="environment" hidden>
+  <input id="scan" class="setup" placeholder="Scan or type part number" autocomplete="off" enterkeyhint="go" aria-label="Part number">
+  <button id="go" class="setup">Check</button>
   <button class="primary" id="liveBtn">Start camera</button>
+</div>
+<div class="row setup">
+  <input type="file" id="photo" accept="image/*" capture="environment" hidden>
   <button id="photoBtn">Photo scan</button>
   <button id="export">Export CSV</button>
   <button id="reset">Clear scans</button>
 </div>
 <div id="reader"></div>
-<div class="row" id="camTools" hidden>
-  <label>Camera<select id="camSel"></select></label>
-  <label id="zoomBox" hidden>Zoom <span id="zoomVal">1×</span><input type="range" id="zoom" min="1" max="1" step="0.1" value="1"></label>
-</div>
-<div id="live" hidden><video id="vid" playsinline muted></video><div id="camInfo" class="hint"></div></div>
+<div id="live" hidden><video id="vid" playsinline muted></video></div>
 
 <div id="result">Example order loaded. Load your own file to replace it.</div>
 <div id="raw" class="hint"></div>
 <div id="stats"></div>
 <div id="orders"></div>
+<div class="row" id="camTools" hidden>
+  <label>Camera<select id="camSel"></select></label>
+  <label id="zoomBox" hidden>Zoom <span id="zoomVal">1×</span><input type="range" id="zoom" min="1" max="1" step="0.1" value="1"></label>
+</div>
+<div id="camInfo" class="hint"></div>
 
 <h2>Not on order</h2>
 <div id="unknown">None</div>
@@ -257,7 +263,8 @@ let stream = null, track = null, frames = 0, lastCode = '', lastAt = 0;
 const camId = () => { try { return localStorage.getItem('camId') || ''; } catch { return ''; } };
 function stopCam() {
   stream?.getTracks().forEach(t => t.stop()); stream = track = null;
-  $('live').hidden = true; $('camTools').hidden = true; $('liveBtn').textContent = 'Start camera';
+  $('live').hidden = true; $('camTools').hidden = true; $('camInfo').textContent = ''; $('liveBtn').textContent = 'Start camera';
+  document.body.classList.remove('scanning');
 }
 async function startCam() {
   if (!('BarcodeDetector' in window)) return show('bad', 'This browser has no built-in barcode reader. Use Chrome on Android, or Photo scan.');
@@ -272,6 +279,7 @@ async function startCam() {
   track = stream.getVideoTracks()[0];
   $('vid').srcObject = stream; await $('vid').play();
   $('live').hidden = false; $('camTools').hidden = false; $('liveBtn').textContent = 'Stop camera';
+  document.body.classList.add('scanning'); window.scrollTo(0, 0);
   const caps = track.getCapabilities?.() || {};
   try { if (caps.focusMode?.includes('continuous')) await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
   // many Androids reach the 0.6 lens by zooming below 1×, not as a separate camera
