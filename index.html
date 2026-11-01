@@ -74,7 +74,6 @@
     <button id="pasteGo">Load pasted rows</button>
   </details>
   <label>Batch / serial column<select id="colAlt"></select></label>
-  <label>Qty column<select id="colQty"></select></label>
 </div>
 
 <div class="row">
@@ -140,10 +139,10 @@ function findRows(code) {
   }
   return [];
 }
-const scanned = i => (S.scans[i] || []).reduce((a, s) => a + s.n, 0);
-const ordered = i => Number(S.rows[i][S.qtyCol]) || 1;
-// an order (T number) is done when every one of its lines has its full qty scanned
-const orderDone = o => S.rows.every((r, i) => r[S.orderCol] !== o || scanned(i) >= ordered(i));
+// One scan = the whole line is there (a batch label covers the whole bag); quantities aren't counted.
+const isDone = i => !!S.scans[i]?.length;
+const palletOf = i => (S.scans[i] || []).map(s => s.pallet).join(', ');
+const orderDone = o => S.rows.every((r, i) => r[S.orderCol] !== o || isDone(i));
 
 function show(cls, text) { $('result').className = cls; $('result').textContent = text; }
 
@@ -155,29 +154,22 @@ function handle(code) {
   if (!hits.length) {
     S.unknown.push({ code, pallet });
     show('bad', `✗ ${code}: not on order`);
-  } else if (hits.byBatch && scanned(hits[0])) {
-    // one label per batch bag: a repeat scan is the same bag again, don't count it twice
+  } else if (hits.every(isDone)) {
     const i = hits[0];
-    show('over', `⚠ Already scanned: ${S.rows[i][S.altCol]} (${S.rows[i][S.partCol]}) on pallet ${S.scans[i].map(s => s.pallet).join(', ')}`);
+    show('over', `⚠ Already scanned: ${S.rows[i][S.altCol || S.partCol]} (${S.rows[i][S.partCol]}) on pallet ${palletOf(i)}`);
   } else {
-    // batch label = whole bag, so count the line's full qty; part no. scans count 1 each
-    // same part on several lines: fill the first line that still needs qty
-    const i = hits.find(h => scanned(h) < ordered(h)) ?? hits[0];
+    // same part no. on several lines: take the first line not yet scanned
+    const i = hits.find(h => !isDone(h));
     const order = S.orderCol ? S.rows[i][S.orderCol] : '';
-    const wasDone = order && orderDone(order);
-    const add = hits.byBatch ? ordered(i) : 1;
-    S.scans[i] = S.scans[i] || [];
-    const p = S.scans[i].find(s => s.pallet === pallet);
-    p ? p.n += add : S.scans[i].push({ pallet, n: add });
-    const over = scanned(i) > ordered(i);
-    const msg = `${over ? '⚠ Over' : '✓'} ${S.rows[i][S.partCol]} · line ${i + 1} · ${scanned(i)}/${ordered(i)} · pallet ${pallet}`;
-    if (order && !wasDone && orderDone(order)) {
+    S.scans[i] = [{ pallet, n: 1 }];
+    const msg = `✓ ${S.rows[i][S.partCol]} · line ${i + 1} · pallet ${pallet}`;
+    if (order && orderDone(order)) {
       const n = S.rows.filter(r => r[S.orderCol] === order).length;
       show('ok done', `✓ ORDER ${order} COMPLETE · all ${n} lines scanned\n${msg}`);
       try { navigator.vibrate?.([300, 150, 300]); } catch {}
       save(); render(); return;
     }
-    show(over ? 'over' : 'ok', msg);
+    show('ok', msg);
   }
   try { navigator.vibrate?.(hits.length ? 80 : [200, 100, 200]); } catch {}
   save(); render();
@@ -185,24 +177,21 @@ function handle(code) {
 
 function render() {
   const fill = (sel, val) => { sel.innerHTML = S.headers.map(h => `<option${h === val ? ' selected' : ''}>${esc(h)}</option>`).join(''); };
-  fill($('colPart'), S.partCol); fill($('colQty'), S.qtyCol); fill($('colAlt'), S.altCol);
+  fill($('colPart'), S.partCol); fill($('colAlt'), S.altCol);
   $('colAlt').insertAdjacentHTML('afterbegin', `<option value=""${S.altCol ? '' : ' selected'}>(none)</option>`);
   // hide columns that hold the same value on every line (order no., customer, currency…); export keeps them
   const cols = S.headers.filter(h => [S.partCol, S.qtyCol, S.altCol].includes(h) || S.rows.length < 2 || new Set(S.rows.map(r => String(r[h]).trim())).size > 1);
   let done = 0;
   const body = S.rows.map((r, i) => {
-    const n = scanned(i), q = ordered(i);
-    if (n === q) done++;
-    const cls = n === 0 ? '' : n === q ? 'ok' : n > q ? 'over' : 'part';
-    const pal = (S.scans[i] || []).map(s => `${esc(s.pallet)}×${s.n}`).join(', ');
-    return `<tr class="${cls}"><td>${i + 1}</td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}<td>${n}/${q}</td><td>${pal}</td></tr>`;
+    if (isDone(i)) done++;
+    return `<tr class="${isDone(i) ? 'ok' : ''}"><td>${i + 1}</td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}<td>${isDone(i) ? '✓' : ''}</td><td>${esc(palletOf(i))}</td></tr>`;
   }).join('');
-  $('tbl').innerHTML = `<tr><th>#</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}<th>Scanned</th><th>Pallets</th></tr>` + body;
+  $('tbl').innerHTML = `<tr><th>#</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}<th>Scanned</th><th>Pallet</th></tr>` + body;
   $('stats').textContent = `${done} of ${S.rows.length} lines complete · ${S.unknown.length} unknown scans` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
   const orders = S.orderCol ? [...new Set(S.rows.map(r => r[S.orderCol]))] : [];
   $('orders').innerHTML = orders.map(o => {
     const idx = S.rows.map((r, i) => i).filter(i => S.rows[i][S.orderCol] === o);
-    const d = idx.filter(i => scanned(i) >= ordered(i)).length;
+    const d = idx.filter(isDone).length;
     return `<span class="ord${d === idx.length ? ' ok' : ''}">${d === idx.length ? '✓ ' : ''}${esc(o)} · ${d}/${idx.length}</span>`;
   }).join('');
   $('unknown').innerHTML = S.unknown.length ? S.unknown.map(u => `${esc(u.code)} (${esc(u.pallet)})`).join('<br>') : 'None';
@@ -243,7 +232,6 @@ function load(wb, name) {
   }
 }
 $('colPart').onchange = e => { S.partCol = e.target.value; save(); render(); };
-$('colQty').onchange = e => { S.qtyCol = e.target.value; save(); render(); };
 $('colAlt').onchange = e => { S.altCol = e.target.value; save(); render(); };
 // Show exactly what the scanner/photo read, so a wrong or partial code is visible
 const showRaw = codes => { $('raw').innerHTML = codes.length ? 'Barcode said: ' + codes.map(c => `<code class="mono">${esc(c)}</code>`).join(' · ') : ''; };
@@ -346,9 +334,8 @@ $('photo').onchange = async e => {
 };
 
 $('export').onclick = async () => {
-  const check = i => { const d = scanned(i) - ordered(i); return !scanned(i) ? 'NOT SCANNED' : d === 0 ? 'OK' : d < 0 ? `MISSING ${-d}` : `OVER ${d}`; };
-  const out = S.rows.map((r, i) => ({ ...r, Scanned: scanned(i), Check: check(i), Pallets: (S.scans[i] || []).map(s => `${s.pallet}x${s.n}`).join('; ') }));
-  S.unknown.forEach(u => out.push({ [S.partCol]: u.code, Scanned: '', Check: 'NOT ON ORDER', Pallets: u.pallet }));
+  const out = S.rows.map((r, i) => ({ ...r, Check: isDone(i) ? 'OK' : 'NOT SCANNED', Pallet: palletOf(i) }));
+  S.unknown.forEach(u => out.push({ [S.partCol]: u.code, Check: 'NOT ON ORDER', Pallet: u.pallet }));
   const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(out));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
