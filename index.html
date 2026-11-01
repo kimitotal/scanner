@@ -137,10 +137,12 @@ function findRows(code) {
   const tries = [norm(code)];
   const m = norm(code).match(/^1?[PS](.+)$/);
   if (m) tries.push(m[1]);
-  for (const col of [S.altCol, S.partCol].filter(Boolean)) {
+  // serialised parts carry the Label No. on their barcode; it pins the line like a batch no. does
+  for (const col of [S.altCol, S.labelCol, S.partCol].filter(Boolean)) {
     for (const t of tries) {
+      if (t === '0') continue; // Label No. is "0" on unlabelled lines
       const hits = S.rows.map((r, i) => i).filter(i => norm(S.rows[i][col]) === t);
-      if (hits.length) return Object.assign(hits, { byBatch: col === S.altCol });
+      if (hits.length) return Object.assign(hits, { byBatch: col !== S.partCol });
     }
   }
   return [];
@@ -236,7 +238,7 @@ function load(wb, name) {
     const headers = Object.keys(rows[0]);
     const guess = re => headers.find(h => re.test(h));
     S = { headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
-      altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', scans: {}, unknown: [], skipped: all.length - rows.length };
+      altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', labelCol: guess(/label/i) || '', scans: {}, unknown: [], skipped: all.length - rows.length };
     show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`);
     save(); render();
   }
