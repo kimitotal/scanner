@@ -60,6 +60,7 @@
   /* while the camera runs, hide setup so pallet, camera and result fit one screen */
   body.scanning .setup { display: none !important; }
   body.scanning #result { margin-top: 8px; }
+  #fix:not(:empty) { margin: 6px 0; }
   [hidden] { display: none !important; }
   * { box-sizing: border-box; }
   details { flex-basis: 100%; } summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
@@ -83,8 +84,8 @@
 
 <div class="row">
   <label>Current pallet<input id="pallet" placeholder="PLT-01" autocomplete="off"></label>
-  <input id="scan" class="setup" placeholder="Scan or type part number" autocomplete="off" enterkeyhint="go" aria-label="Part number">
-  <button id="go" class="setup">Check</button>
+  <input id="scan" placeholder="Type batch, serial, label or part no." autocomplete="off" enterkeyhint="go" aria-label="Batch, serial, label or part number">
+  <button id="go">Check</button>
   <button class="primary" id="liveBtn">Start camera</button>
 </div>
 <div class="row setup">
@@ -97,6 +98,7 @@
 <div id="live" hidden><video id="vid" playsinline muted></video></div>
 
 <div id="result">Example order loaded. Load your own file to replace it.</div>
+<div id="fix"></div>
 <div id="raw" class="hint"></div>
 <div id="stats"></div>
 <div id="orders"></div>
@@ -165,12 +167,24 @@ function handle(code) {
   if (!code) return;
   const hits = findRows(code);
   const pallet = $('pallet').value.trim() || '(none)';
+  $('fix').innerHTML = '';
   if (!hits.length) {
     S.unknown.push({ code, pallet });
     show('bad', `✗ ${code}: not on order`);
   } else if (hits.every(isDone)) {
-    const i = hits[0];
+    const i = hits.find(h => palletOf(h) !== pallet) ?? hits[0];
     show('over', `⚠ Already scanned: ${S.rows[i][S.altCol || S.partCol]} (${S.rows[i][S.partCol]}) on pallet ${palletOf(i)}`);
+    // wrong pallet? re-scan with the right pallet set, then move the whole batch group in one tap
+    if (palletOf(i) !== pallet) {
+      const group = hits.filter(h => !S.orderCol || S.rows[h][S.orderCol] === S.rows[i][S.orderCol]);
+      $('fix').innerHTML = `<button class="primary" id="moveBtn">Move to pallet ${esc(pallet)}</button>`;
+      $('moveBtn').onclick = () => {
+        group.forEach(h => { S.scans[h] = [{ pallet, n: 1 }]; });
+        $('fix').innerHTML = '';
+        show('ok', `✓ Moved ${S.rows[i][S.partCol]} to pallet ${pallet}`);
+        save(); render();
+      };
+    }
   } else {
     // same part no. on several lines: take the first line not yet scanned
     const i = hits.find(h => !isDone(h));
