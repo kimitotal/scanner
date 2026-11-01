@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pallet Scan Check</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#1f5fa8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  /* Layout: one column of controls on top, big result band, order table below (scrolls sideways on phone) */
+  :root {
+    --bg: #f3f5f7; --surface: #ffffff; --fg: #15202b; --muted: #5b6b7a; --line: #cfd8e0; --accent: #1f5fa8;
+    --ok: #c9efd2; --ok-fg: #0f5223; --warn: #ffe7a3; --warn-fg: #6a4b00; --bad: #ffc4c4; --bad-fg: #7a1010; --part: #fff4cf;
+    --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #11171d; --surface: #1a222b; --fg: #e6edf3; --muted: #93a3b3; --line: #2e3a46; --accent: #6ea8ec;
+    --ok: #17402a; --ok-fg: #a8e8bb; --warn: #4a3a0c; --warn-fg: #ffe08a; --bad: #4d1a1a; --bad-fg: #ffb3b3; --part: #3a3216; color-scheme: dark } }
+  :root[data-theme="dark"] {
+    --bg: #11171d; --surface: #1a222b; --fg: #e6edf3; --muted: #93a3b3; --line: #2e3a46; --accent: #6ea8ec;
+    --ok: #17402a; --ok-fg: #a8e8bb; --warn: #4a3a0c; --warn-fg: #ffe08a; --bad: #4d1a1a; --bad-fg: #ffb3b3; --part: #3a3216; color-scheme: dark }
+  body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 12px; text-wrap: balance; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 0 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+  input, select, button { font: inherit; font-size: 16px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); }
+  button { cursor: pointer; font-weight: 600; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #scan { flex: 1 1 220px; min-width: 0; font-family: var(--mono); font-size: 18px; }
+  #pallet { width: 120px; font-family: var(--mono); }
+  #result { font-size: 22px; font-weight: 700; padding: 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); margin: 6px 0; overflow-wrap: anywhere; }
+  #result.ok { background: var(--ok); color: var(--ok-fg); border-color: transparent; }
+  #result.over { background: var(--warn); color: var(--warn-fg); border-color: transparent; }
+  #result.bad { background: var(--bad); color: var(--bad-fg); border-color: transparent; }
+  #stats { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  tr.ok td { background: var(--ok); } tr.part td { background: var(--part); } tr.over td { background: var(--warn); }
+  .mono { font-family: var(--mono); }
+  #unknown { font-family: var(--mono); font-size: 14px; }
+  #reader { display: none; }
+  #live { width: 100%; max-width: 480px; border-radius: 8px; overflow: hidden; }
+  #live video { width: 100% !important; }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  details { flex-basis: 100%; } summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
+  textarea { font: 13px var(--mono); width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); margin: 6px 0; }
+  .hint { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Pallet Scan Check</h1>
+
+<div class="row">
+  <label>Order file (Excel or CSV)<input type="file" id="file"></label>
+  <label>Part number column<select id="colPart"></select></label>
+  <details id="pasteBox"><summary>Or paste order rows</summary>
+    <textarea id="paste" rows="5" placeholder="Copy the rows (with the header row) from Excel or the CSV and paste here" aria-label="Order rows"></textarea>
+    <button id="pasteGo">Load pasted rows</button>
+  </details>
+  <label>Batch / serial column<select id="colAlt"></select></label>
+  <label>Qty column<select id="colQty"></select></label>
+</div>
+
+<div class="row">
+  <label>Current pallet<input id="pallet" placeholder="PLT-01" autocomplete="off"></label>
+  <input id="scan" placeholder="Scan or type part number" autocomplete="off" enterkeyhint="go" aria-label="Part number">
+  <button id="go">Check</button>
+</div>
+<div class="row">
+  <input type="file" id="photo" accept="image/*" capture="environment" hidden>
+  <button class="primary" id="liveBtn">Start camera</button>
+  <button id="photoBtn">Photo scan</button>
+  <button id="export">Export CSV</button>
+  <button id="reset">Clear scans</button>
+</div>
+<div id="reader"></div>
+<div id="live" hidden></div>
+
+<div id="result">Example order loaded. Load your own file to replace it.</div>
+<div id="raw" class="hint"></div>
+<div id="stats"></div>
+
+<h2>Not on order</h2>
+<div id="unknown">None</div>
+
+<h2>Order lines</h2>
+<div class="wrap"><table id="tbl"></table></div>
+<p class="hint">Scans are saved on this device only. Export CSV before switching phones or clearing browser data.</p>
+
+<script>
+const $ = id => document.getElementById(id);
+const EXAMPLE = {
+  headers: ['Part Number', 'Description', 'Qty'],
+  rows: [
+    { 'Part Number': 'D5323-1', Description: 'Brake assembly (example)', Qty: 2 },
+    { 'Part Number': 'MS21042L3', Description: 'Nut, self-locking (example)', Qty: 50 },
+    { 'Part Number': '2315M20-3', Description: 'Hose assembly (example)', Qty: 1 },
+  ],
+  partCol: 'Part Number', qtyCol: 'Qty', scans: {}, unknown: [],
+};
+let S = structuredClone(EXAMPLE);
+const save = () => { try { localStorage.setItem('scanState', JSON.stringify(S)); } catch {} };
+try { const s = JSON.parse(localStorage.getItem('scanState')); if (s && s.rows) S = s; } catch {}
+
+const norm = s => String(s ?? '').toUpperCase().replace(/[\s\-\/\.]/g, '');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// Batch/serial no. pins one exact line, so try it first; then part no.
+// Aviation labels (ATA Spec 2000 / MH10) often prefix part # with "1P" or "P"; try raw, then stripped.
+function findRows(code) {
+  const tries = [norm(code)];
+  const m = norm(code).match(/^1?[PS](.+)$/);
+  if (m) tries.push(m[1]);
+  for (const col of [S.altCol, S.partCol].filter(Boolean)) {
+    for (const t of tries) {
+      const hits = S.rows.map((r, i) => i).filter(i => norm(S.rows[i][col]) === t);
+      if (hits.length) return Object.assign(hits, { byBatch: col === S.altCol });
+    }
+  }
+  return [];
+}
+const scanned = i => (S.scans[i] || []).reduce((a, s) => a + s.n, 0);
+const ordered = i => Number(S.rows[i][S.qtyCol]) || 1;
+
+function show(cls, text) { $('result').className = cls; $('result').textContent = text; }
+
+function handle(code) {
+  code = String(code).trim();
+  if (!code) return;
+  const hits = findRows(code);
+  const pallet = $('pallet').value.trim() || '(none)';
+  if (!hits.length) {
+    S.unknown.push({ code, pallet });
+    show('bad', `✗ ${code}: not on order`);
+  } else if (hits.byBatch && scanned(hits[0])) {
+    // one label per batch bag: a repeat scan is the same bag again, don't count it twice
+    const i = hits[0];
+    show('over', `⚠ Already scanned: ${S.rows[i][S.altCol]} (${S.rows[i][S.partCol]}) on pallet ${S.scans[i].map(s => s.pallet).join(', ')}`);
+  } else {
+    // batch label = whole bag, so count the line's full qty; part no. scans count 1 each
+    // same part on several lines: fill the first line that still needs qty
+    const i = hits.find(h => scanned(h) < ordered(h)) ?? hits[0];
+    const add = hits.byBatch ? ordered(i) : 1;
+    S.scans[i] = S.scans[i] || [];
+    const p = S.scans[i].find(s => s.pallet === pallet);
+    p ? p.n += add : S.scans[i].push({ pallet, n: add });
+    const over = scanned(i) > ordered(i);
+    show(over ? 'over' : 'ok', `${over ? '⚠ Over' : '✓'} ${S.rows[i][S.partCol]} · line ${i + 1} · ${scanned(i)}/${ordered(i)} · pallet ${pallet}`);
+  }
+  try { navigator.vibrate?.(hits.length ? 80 : [200, 100, 200]); } catch {}
+  save(); render();
+}
+
+function render() {
+  const fill = (sel, val) => { sel.innerHTML = S.headers.map(h => `<option${h === val ? ' selected' : ''}>${esc(h)}</option>`).join(''); };
+  fill($('colPart'), S.partCol); fill($('colQty'), S.qtyCol); fill($('colAlt'), S.altCol);
+  $('colAlt').insertAdjacentHTML('afterbegin', `<option value=""${S.altCol ? '' : ' selected'}>(none)</option>`);
+  // hide columns that hold the same value on every line (order no., customer, currency…); export keeps them
+  const cols = S.headers.filter(h => [S.partCol, S.qtyCol, S.altCol].includes(h) || S.rows.length < 2 || new Set(S.rows.map(r => String(r[h]).trim())).size > 1);
+  let done = 0;
+  const body = S.rows.map((r, i) => {
+    const n = scanned(i), q = ordered(i);
+    if (n === q) done++;
+    const cls = n === 0 ? '' : n === q ? 'ok' : n > q ? 'over' : 'part';
+    const pal = (S.scans[i] || []).map(s => `${esc(s.pallet)}×${s.n}`).join(', ');
+    return `<tr class="${cls}"><td>${i + 1}</td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}<td>${n}/${q}</td><td>${pal}</td></tr>`;
+  }).join('');
+  $('tbl').innerHTML = `<tr><th>#</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}<th>Scanned</th><th>Pallets</th></tr>` + body;
+  $('stats').textContent = `${done} of ${S.rows.length} lines complete · ${S.unknown.length} unknown scans` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
+  $('unknown').innerHTML = S.unknown.length ? S.unknown.map(u => `${esc(u.code)} (${esc(u.pallet)})`).join('<br>') : 'None';
+}
+
+// Two-tap confirm, since the viewer blocks confirm() dialogs
+function armed(btn, label, action) {
+  if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = label; action(); return; }
+  btn.dataset.armed = 1; btn.textContent = 'Tap again to confirm';
+  setTimeout(() => { delete btn.dataset.armed; btn.textContent = label; }, 3000);
+}
+
+$('file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { load(XLSX.read(await f.arrayBuffer()), f.name); }
+  catch (err) { show('bad', `Could not read that file: ${err.message}`); }
+  e.target.value = '';
+};
+// Excel copies as tab-separated text, the CSV as comma-separated; SheetJS reads both from a string
+$('pasteGo').onclick = () => {
+  const t = $('paste').value.trim(); if (!t) return show('bad', 'Paste the rows into the box first.');
+  try { load(XLSX.read(t, { type: 'string' }), 'pasted rows'); $('paste').value = ''; $('pasteBox').open = false; }
+  catch (err) { show('bad', `Could not read the pasted rows: ${err.message}`); }
+};
+function load(wb, name) {
+  {
+    // raw: false keeps "1.00" / dates as shown in the file; trim the padding some exports add
+    const all = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false })
+      .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.trim(), String(v).trim()])));
+    const rows = all.filter(r => !Object.values(r).some(v => /^CANCEL/i.test(v)));
+    if (!rows.length) return show('bad', 'That file has no open lines on its first sheet.');
+    const headers = Object.keys(rows[0]);
+    const guess = re => headers.find(h => re.test(h));
+    S = { headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
+      altCol: guess(/serial|batch/i) || '', scans: {}, unknown: [], skipped: all.length - rows.length };
+    show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`);
+    save(); render();
+  }
+}
+$('colPart').onchange = e => { S.partCol = e.target.value; save(); render(); };
+$('colQty').onchange = e => { S.qtyCol = e.target.value; save(); render(); };
+$('colAlt').onchange = e => { S.altCol = e.target.value; save(); render(); };
+// Show exactly what the scanner/photo read, so a wrong or partial code is visible
+const showRaw = codes => { $('raw').innerHTML = codes.length ? 'Barcode said: ' + codes.map(c => `<code class="mono">${esc(c)}</code>`).join(' · ') : ''; };
+const submit = () => { showRaw([$('scan').value]); handle($('scan').value); $('scan').value = ''; $('scan').focus(); };
+$('scan').onkeydown = e => { if (e.key === 'Enter') submit(); };
+$('go').onclick = submit;
+$('reset').onclick = e => armed(e.target, 'Clear scans', () => { S.scans = {}; S.unknown = []; save(); render(); show('', 'Scans cleared.'); });
+
+// Photo scan: camera app takes a picture, we decode barcodes from it.
+// Native BarcodeDetector (Android Chrome) returns every code on a label; otherwise html5-qrcode reads one.
+$('photoBtn').onclick = () => $('photo').click();
+let pageReader;
+// label barcode types only (fewer types = fewer misreads); Android Chrome's built-in reader when present
+const readerConfig = () => {
+  const F = Html5QrcodeSupportedFormats;
+  return { verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+    formatsToSupport: [F.CODE_128, F.CODE_39, F.CODE_93, F.EAN_13, F.EAN_8, F.UPC_A, F.ITF, F.CODABAR, F.DATA_MATRIX, F.QR_CODE] };
+};
+
+// Live camera: reads continuously; the same code is ignored for 3 s so one label isn't counted over and over
+let cam = null, lastCode = '', lastAt = 0;
+async function stopCam() { if (cam) { try { await cam.stop(); } catch {} cam = null; } $('live').hidden = true; $('liveBtn').textContent = 'Start camera'; }
+$('liveBtn').onclick = async () => {
+  if (cam) return stopCam();
+  $('live').hidden = false; $('liveBtn').textContent = 'Stop camera';
+  cam = new Html5Qrcode('live', readerConfig());
+  try {
+    await cam.start({ facingMode: 'environment' }, { fps: 10, qrbox: (w, h) => ({ width: Math.round(w * 0.9), height: Math.round(h * 0.45) }) }, code => {
+      if (code === lastCode && Date.now() - lastAt < 3000) return;
+      lastCode = code; lastAt = Date.now();
+      showRaw([code]); handle(code);
+    });
+  } catch (err) {
+    await stopCam();
+    show('bad', `Camera did not start: ${err?.message || err}. Allow camera access for this site in Chrome settings.`);
+  }
+};
+// Full-size phone photos (12 MP) defeat the decoder; try shrunk copies, most likely size first.
+async function decodePhoto(f) {
+  let img;
+  try { img = await createImageBitmap(f); } catch { return []; }
+  pageReader ??= new Html5Qrcode('reader', readerConfig());
+  for (const max of [Infinity, 1920, 1280, 800]) {
+    const k = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    if ('BarcodeDetector' in window) {
+      try { const r = (await new BarcodeDetector().detect(c)).map(b => b.rawValue); if (r.length) return r; } catch {}
+    }
+    try {
+      const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.92));
+      return [await pageReader.scanFile(new File([blob], 'photo.jpg', { type: 'image/jpeg' }), false)];
+    } catch {}
+  }
+  return [];
+}
+$('photo').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  show('', 'Reading barcode…'); showRaw([]);
+  const codes = await decodePhoto(f);
+  if (!codes.length) return show('bad', 'No barcode found. Get closer, keep it flat and in focus, and try again.');
+  showRaw(codes);
+  // a label can carry part, serial and qty codes: use the first that matches the order
+  const hit = codes.find(c => findRows(c).length);
+  handle(hit ?? codes[0]);
+};
+
+$('export').onclick = async () => {
+  const out = S.rows.map((r, i) => ({ ...r, Scanned: scanned(i), Pallets: (S.scans[i] || []).map(s => `${s.pallet}x${s.n}`).join('; ') }));
+  S.unknown.forEach(u => out.push({ [S.partCol]: u.code, Scanned: 'NOT ON ORDER', Pallets: u.pallet }));
+  const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(out));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'scan-results.csv'; a.click();
+  show('ok', 'Saved scan-results.csv to Downloads.');
+};
+
+render();
+</script>
+</body>
+</html>
