@@ -323,8 +323,9 @@ $('photo').onchange = async e => {
 };
 
 $('export').onclick = async () => {
-  const out = S.rows.map((r, i) => ({ ...r, Scanned: scanned(i), Pallets: (S.scans[i] || []).map(s => `${s.pallet}x${s.n}`).join('; ') }));
-  S.unknown.forEach(u => out.push({ [S.partCol]: u.code, Scanned: 'NOT ON ORDER', Pallets: u.pallet }));
+  const check = i => { const d = scanned(i) - ordered(i); return !scanned(i) ? 'NOT SCANNED' : d === 0 ? 'OK' : d < 0 ? `MISSING ${-d}` : `OVER ${d}`; };
+  const out = S.rows.map((r, i) => ({ ...r, Scanned: scanned(i), Check: check(i), Pallets: (S.scans[i] || []).map(s => `${s.pallet}x${s.n}`).join('; ') }));
+  S.unknown.forEach(u => out.push({ [S.partCol]: u.code, Scanned: '', Check: 'NOT ON ORDER', Pallets: u.pallet }));
   const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(out));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
