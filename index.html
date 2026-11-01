@@ -167,8 +167,11 @@ function handle(code) {
     // same part no. on several lines: take the first line not yet scanned
     const i = hits.find(h => !isDone(h));
     const order = S.orderCol ? S.rows[i][S.orderCol] : '';
-    S.scans[i] = [{ pallet, n: 1 }];
-    const msg = `✓ ${S.rows[i][S.partCol]} · line ${i + 1} · pallet ${pallet}`;
+    // one batch label covers every line of that batch in the same T order; another T order needs its own scan
+    const lines = hits.byBatch ? hits.filter(h => !isDone(h) && (!S.orderCol || S.rows[h][S.orderCol] === order)) : [i];
+    lines.forEach(h => { S.scans[h] = [{ pallet, n: 1 }]; });
+    const where = S.posCol ? `${order} pos ${lines.map(h => S.rows[h][S.posCol]).join(', ')}` : `line ${lines.map(h => h + 1).join(', ')}`;
+    const msg = `✓ ${S.rows[i][S.partCol]} · ${where} · pallet ${pallet}`;
     if (order && orderDone(order)) {
       const n = S.rows.filter(r => r[S.orderCol] === order).length;
       show('ok done', `✓ ORDER ${order} COMPLETE · all ${n} lines scanned\n${msg}`);
@@ -233,7 +236,7 @@ function load(wb, name) {
     const headers = Object.keys(rows[0]);
     const guess = re => headers.find(h => re.test(h));
     S = { headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
-      altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', scans: {}, unknown: [], skipped: all.length - rows.length };
+      altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', scans: {}, unknown: [], skipped: all.length - rows.length };
     show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`);
     save(); render();
   }
