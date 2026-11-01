@@ -249,7 +249,10 @@ function load(wb, name) {
     save(); render();
   }
 }
-$('colPart').onchange = e => { S.partCol = e.target.value; save(); render(); };
+// current pallet stays until changed, also across app restarts
+try { $('pallet').value = localStorage.getItem('pallet') || ''; } catch {}
+$('pallet').oninput = e => { try { localStorage.setItem('pallet', e.target.value); } catch {} };
+$('colPart').onchange =e => { S.partCol = e.target.value; save(); render(); };
 $('colAlt').onchange = e => { S.altCol = e.target.value; save(); render(); };
 // Show exactly what the scanner/photo read, so a wrong or partial code is visible
 const showRaw = codes => { $('raw').innerHTML = codes.length ? 'Barcode said: ' + codes.map(c => `<code class="mono">${esc(c)}</code>`).join(' · ') : ''; };
