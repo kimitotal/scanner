@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Label Barcode Test</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  /* Layout: two buttons, live video, then a list of what each reader found */
+  :root { --bg: #f3f5f7; --surface: #fff; --fg: #15202b; --muted: #5b6b7a; --line: #cfd8e0; --accent: #1f5fa8; --bad: #7a1010;
+    --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #11171d; --surface: #1a222b; --fg: #e6edf3; --muted: #93a3b3; --line: #2e3a46; --accent: #6ea8ec; --bad: #ffb3b3; color-scheme: dark } }
+  :root[data-theme="dark"] { --bg: #11171d; --surface: #1a222b; --fg: #e6edf3; --muted: #93a3b3; --line: #2e3a46; --accent: #6ea8ec; --bad: #ffb3b3; color-scheme: dark }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p { color: var(--muted); margin: 0 0 14px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: 600 17px var(--sans); padding: 12px 18px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  video { width: 100%; max-width: 480px; border-radius: 8px; margin-top: 12px; background: #000; display: block; }
+  #info { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  #out { display: grid; gap: 8px; margin-top: 16px; }
+  .code { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .code b { font: 500 18px var(--mono); overflow-wrap: anywhere; display: block; }
+  .code small { color: var(--muted); }
+  .bad { color: var(--bad); font-weight: 600; }
+  img { max-width: 100%; max-height: 220px; border-radius: 8px; margin-top: 12px; }
+  #reader { display: none; }
+</style>
+</head>
+<body>
+<h1>Label Barcode Test</h1>
+<p>Scan live with the camera, or take a photo of one label. Every barcode found is listed below with exactly what it contains.</p>
+<input type="file" id="photo" accept="image/*" capture="environment" hidden>
+<div class="btns"><button id="liveBtn">Start camera</button><button id="go">Take photo</button></div>
+<video id="vid" playsinline muted hidden></video>
+<div id="info"></div>
+<div id="out"></div>
+<img id="preview" alt="Last photo" hidden>
+<div id="reader"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// make hidden characters (group separators in DataMatrix labels etc.) visible
+const show = s => esc(s).replace(/[\x00-\x1f]/g, c => `<span class="bad">[${c.charCodeAt(0)}]</span>`);
+const card = x => x.text
+  ? `<div class="code"><b>${show(x.text)}</b><small>${esc(x.type)} · ${x.text.length} characters · ${x.by}</small></div>`
+  : `<small class="bad">${esc(x.err)}</small>`;
+
+// Live camera: same as the full app — Chrome's built-in BarcodeDetector reads the video ~8×/s.
+// Each distinct code is listed once per camera session.
+let stream = null, seen = null;
+function stopCam() {
+  stream?.getTracks().forEach(t => t.stop()); stream = null;
+  $('vid').hidden = true; $('info').textContent = ''; $('liveBtn').textContent = 'Start camera';
+}
+async function startCam() {
+  if (!('BarcodeDetector' in window)) return $('out').innerHTML = card({ err: 'This browser has no built-in barcode reader. Use Chrome on Android, or Take photo.' });
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+  } catch (err) {
+    return $('out').innerHTML = card({ err: `Camera did not start: ${err.message}. Allow camera access for this site in Chrome settings.` });
+  }
+  const track = stream.getVideoTracks()[0];
+  try { if (track.getCapabilities?.().focusMode?.includes('continuous')) await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
+  $('vid').srcObject = stream; $('vid').hidden = false; await $('vid').play();
+  $('liveBtn').textContent = 'Stop camera'; $('out').innerHTML = ''; $('preview').hidden = true; seen = new Set();
+  scanLoop(new BarcodeDetector(), 0);
+}
+async function scanLoop(det, frames) {
+  if (!stream) return;
+  try {
+    for (const b of await det.detect($('vid'))) {
+      if (seen.has(b.rawValue)) continue; seen.add(b.rawValue);
+      try { navigator.vibrate?.(80); } catch {}
+      $('out').insertAdjacentHTML('afterbegin', card({ text: b.rawValue, type: b.format, by: 'live camera' }));
+    }
+  } catch {}
+  $('info').textContent = `frames checked ${frames + 1} · ${seen.size} codes found`;
+  setTimeout(() => scanLoop(det, frames + 1), 120);
+}
+$('liveBtn').onclick = () => stream ? stopCam() : startCam();
+
+$('go').onclick = () => { stopCam(); $('photo').click(); };
+$('photo').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  $('preview').src = URL.createObjectURL(f); $('preview').hidden = false;
+  $('out').innerHTML = '<p>Reading…</p>';
+  const found = [];
+  // Reader 1: the phone's own barcode reader (Android Chrome); finds every code on the photo
+  if ('BarcodeDetector' in window) {
+    try { (await new BarcodeDetector().detect(await createImageBitmap(f))).forEach(b => found.push({ text: b.rawValue, type: b.format, by: 'phone reader' })); }
+    catch (err) { found.push({ err: `Phone reader failed: ${err.message}` }); }
+  }
+  // Reader 2: html5-qrcode (works on iPhone too); finds one code
+  try { const r = await new Html5Qrcode('reader').scanFileV2(f, false); found.push({ text: r.decodedText, type: r.result?.format?.formatName || '?', by: 'page reader' }); }
+  catch { found.push({ err: 'Page reader found no barcode.' }); }
+  const codes = found.filter(x => x.text);
+  $('out').innerHTML = (codes.length ? '' : '<p class="bad">No barcode could be read. Try closer, flat, in good light, one label filling the photo.</p>') + found.map(card).join('');
+};
+</script>
+</body>
+</html>
