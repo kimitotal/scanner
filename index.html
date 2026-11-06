@@ -119,6 +119,7 @@
   <button id="export">Export CSV</button>
   <select id="palSel" aria-label="Pallet to print"></select>
   <button id="printBtn">Print pallet list</button>
+  <button id="palXlsx">Export all pallets (Excel)</button>
   <button id="reset">Clear scans</button>
 </div>
 <div id="reader"></div>
@@ -368,16 +369,20 @@ $('sugg').onclick = e => {
 const byNum = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
 const palletList = () => [...new Set(S.rows.flatMap((r, i) => isDone(i) ? [palletOf(i)] : []))].sort(byNum);
 
-// Printable content list per pallet: one page each, lines sorted by order then pos
+// Pallet content list columns and lines, sorted by order then pos (print and Excel export)
+const palletCols = () => { const desc = S.headers.find(h => /desc/i.test(h));
+  return [S.orderCol, S.posCol, S.partCol, desc, S.altCol, S.labelCol, S.qtyCol].filter((h, k, a) => h && a.indexOf(h) === k); };
+const palletLines = p => S.rows.map((r, i) => i).filter(i => isDone(i) && palletOf(i) === p)
+  .sort((a, b) => byNum(S.rows[a][S.orderCol] ?? '', S.rows[b][S.orderCol] ?? '') || byNum(S.rows[a][S.posCol] ?? '', S.rows[b][S.posCol] ?? ''));
+
+// Printable content list per pallet: one page each
 $('printBtn').onclick = () => {
   const list = $('palSel').value ? [$('palSel').value] : palletList();
   if (!list.length) return show('bad', 'Nothing scanned yet, so there is no pallet list to print.');
-  const desc = S.headers.find(h => /desc/i.test(h));
-  const cols = [S.orderCol, S.posCol, S.partCol, desc, S.altCol, S.labelCol, S.qtyCol].filter((h, k, a) => h && a.indexOf(h) === k);
+  const cols = palletCols();
   const now = new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
   $('print').innerHTML = list.map(p => {
-    const lines = S.rows.map((r, i) => i).filter(i => isDone(i) && palletOf(i) === p)
-      .sort((a, b) => byNum(S.rows[a][S.orderCol] ?? '', S.rows[b][S.orderCol] ?? '') || byNum(S.rows[a][S.posCol] ?? '', S.rows[b][S.posCol] ?? ''));
+    const lines = palletLines(p);
     const orders = S.orderCol ? [...new Set(lines.map(i => S.rows[i][S.orderCol]))] : [];
     return `<div class="plist"><h1>Pallet ${esc(p)}</h1>
       <div class="meta">${lines.length} line${lines.length === 1 ? '' : 's'}${orders.length ? ` · orders ${orders.map(esc).join(', ')}` : ''} · printed ${esc(now)}</div>
@@ -510,6 +515,26 @@ $('export').onclick = async () => {
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = 'scan-results.csv'; a.click();
   show('ok', 'Saved scan-results.csv to Downloads.');
+};
+
+// All pallet lists in one Excel file: an "All pallets" sheet, then one sheet per pallet
+$('palXlsx').onclick = () => {
+  const list = palletList();
+  if (!list.length) return show('bad', 'Nothing scanned yet, so there are no pallets to export.');
+  const cols = palletCols();
+  const sheet = (ps, withPallet) => XLSX.utils.json_to_sheet(ps.flatMap(p => palletLines(p).map(i =>
+    ({ ...(withPallet ? { Pallet: p } : {}), ...Object.fromEntries(cols.map(h => [h, S.rows[i][h]])) }))));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet(list, true), 'All pallets');
+  // sheet names: max 31 chars, no : \ / ? * [ ], unique
+  const used = new Set(['All pallets']);
+  list.forEach(p => {
+    let name = `Pallet ${p}`.replace(/[:\\\/?*\[\]]/g, '-').slice(0, 31);
+    for (let n = 2; used.has(name); n++) name = `${name.slice(0, 27)} (${n})`;
+    used.add(name); XLSX.utils.book_append_sheet(wb, sheet([p], false), name);
+  });
+  XLSX.writeFile(wb, 'pallet-lists.xlsx');
+  show('ok', `Saved pallet-lists.xlsx (${list.length} pallets) to Downloads.`);
 };
 
 render();
