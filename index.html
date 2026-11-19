@@ -30,7 +30,8 @@
     padding: 0 var(--side) calc(80px + env(safe-area-inset-bottom, 0px)); }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 8px; }
   input, select, button, textarea { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-  input, select { min-height: 48px; padding: 10px 12px; width: 100%; font-size: 16px; }
+  /* not radios/checkboxes: a 100%-wide hidden radio widened the page and pushed the tab bar off screen */
+  input:where(:not([type=radio], [type=checkbox])), select { min-height: 48px; padding: 10px 12px; width: 100%; font-size: 16px; }
   button, .btn { min-height: 48px; padding: 10px 16px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
   .btn { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   button.primary, .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
