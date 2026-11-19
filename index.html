@@ -713,7 +713,7 @@ $('export').onclick = () => {
   show('ok', 'Saved scan-results.csv to Downloads.');
 };
 
-// Excel: "Pallet summary" (size, weight, total), "All pallets" (every line), then one sheet per pallet
+// Excel: "Pallet summary" (size, weight, total), "All pallets" (every line, no size/weight), then one sheet per pallet
 const numOrBlank = v => v === '' || v == null ? '' : Number(v);
 const dimCols = p => { const d = dimOf(p); return { 'Length cm': numOrBlank(d.l), 'Width cm': numOrBlank(d.w), 'Height cm': numOrBlank(d.h), 'Weight kg': numOrBlank(d.kg) }; };
 $('palXlsx').onclick = () => {
@@ -723,7 +723,7 @@ $('palXlsx').onclick = () => {
   const summary = list.map(p => ({ Pallet: p, Lines: palletLines(p).length, ...dimCols(p) }));
   summary.push({ Pallet: 'Total', Lines: summary.reduce((a, r) => a + r.Lines, 0), 'Weight kg': summary.reduce((a, r) => a + (Number(r['Weight kg']) || 0), 0) });
   const sheet = (ps, withPallet) => XLSX.utils.json_to_sheet(ps.flatMap(p => palletLines(p).map(i =>
-    ({ ...(withPallet ? { Pallet: p, ...dimCols(p) } : {}), ...Object.fromEntries(cols.map(h => [h, S.rows[i][h]])) }))));
+    ({ ...(withPallet ? { Pallet: p } : {}),...Object.fromEntries(cols.map(h => [h, S.rows[i][h]])) }))));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Pallet summary');
   XLSX.utils.book_append_sheet(wb, sheet(list, true), 'All pallets');
