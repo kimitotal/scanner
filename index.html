@@ -11,137 +11,236 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-  /* Layout: one column of controls on top, big result band, order table below (scrolls sideways on phone) */
+  /* Phone-first: sticky order header on top, one tab of content, tab bar fixed at the bottom */
   :root {
     --bg: #f3f5f7; --surface: #ffffff; --fg: #15202b; --muted: #5b6b7a; --line: #cfd8e0; --accent: #1f5fa8;
-    --ok: #c9efd2; --ok-fg: #0f5223; --warn: #ffe7a3; --warn-fg: #6a4b00; --bad: #ffc4c4; --bad-fg: #7a1010; --part: #fff4cf;
+    --ok: #c9efd2; --ok-fg: #0f5223; --warn: #ffe7a3; --warn-fg: #6a4b00; --bad: #ffc4c4; --bad-fg: #7a1010;
     --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+    --side: max(16px, env(safe-area-inset-left, 0px));
   }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
     --bg: #11171d; --surface: #1a222b; --fg: #e6edf3; --muted: #93a3b3; --line: #2e3a46; --accent: #6ea8ec;
-    --ok: #17402a; --ok-fg: #a8e8bb; --warn: #4a3a0c; --warn-fg: #ffe08a; --bad: #4d1a1a; --bad-fg: #ffb3b3; --part: #3a3216; color-scheme: dark } }
+    --ok: #17402a; --ok-fg: #a8e8bb; --warn: #4a3a0c; --warn-fg: #ffe08a; --bad: #4d1a1a; --bad-fg: #ffb3b3; color-scheme: dark } }
   :root[data-theme="dark"] {
     --bg: #11171d; --surface: #1a222b; --fg: #e6edf3; --muted: #93a3b3; --line: #2e3a46; --accent: #6ea8ec;
-    --ok: #17402a; --ok-fg: #a8e8bb; --warn: #4a3a0c; --warn-fg: #ffe08a; --bad: #4d1a1a; --bad-fg: #ffb3b3; --part: #3a3216; color-scheme: dark }
-  body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px;
-    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 40px; }
-  h1 { font-size: 20px; margin: 0 0 12px; text-wrap: balance; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 0 6px; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
-  label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
-  input, select, button { font: inherit; font-size: 16px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); }
-  button { cursor: pointer; font-weight: 600; }
-  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    --ok: #17402a; --ok-fg: #a8e8bb; --warn: #4a3a0c; --warn-fg: #ffe08a; --bad: #4d1a1a; --bad-fg: #ffb3b3; color-scheme: dark }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; -webkit-tap-highlight-color: transparent;
+    padding: 0 var(--side) calc(80px + env(safe-area-inset-bottom, 0px)); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 8px; }
+  input, select, button, textarea { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  input, select { min-height: 48px; padding: 10px 12px; width: 100%; font-size: 16px; }
+  button, .btn { min-height: 48px; padding: 10px 16px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+  .btn { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  button.primary, .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.big, .btn.big { min-height: 56px; font-size: 18px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #scan { flex: 1 1 220px; min-width: 0; font-family: var(--mono); font-size: 18px; }
-  #pallet { width: 120px; font-family: var(--mono); }
-  #result { font-size: 22px; font-weight: 700; padding: 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); margin: 6px 0; overflow-wrap: anywhere; }
+  textarea { font: 13px var(--mono); width: 100%; padding: 10px; margin: 8px 0; }
+  .mono { font-family: var(--mono); }
+  .hint { color: var(--muted); font-size: 14px; }
+  .stack { display: grid; gap: 10px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+  details > summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 8px 0; min-height: 40px; }
+
+  /* header */
+  .top { position: sticky; top: 0; z-index: 5; background: var(--bg); margin: 0 calc(-1 * var(--side)) 12px;
+    padding: max(10px, env(safe-area-inset-top, 0px)) var(--side) 10px; border-bottom: 1px solid var(--line); }
+  .t1 { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
+  #orderName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #stats { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--ok-fg); transition: width .3s; }
+
+  /* bottom tabs */
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(4, 1fr);
+    background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  nav.tabs button { border: 0; border-radius: 0; background: none; min-height: 60px; padding: 8px 2px 6px; font-size: 12px; color: var(--muted);
+    flex-direction: column; gap: 3px; position: relative; }
+  nav.tabs button[aria-current="page"] { color: var(--accent); }
+  nav.tabs svg { width: 24px; height: 24px; }
+  .badge { position: absolute; top: 4px; left: calc(50% + 8px); min-width: 20px; padding: 1px 6px; border-radius: 10px;
+    background: var(--accent); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  /* scan tab */
+  .palrow { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 10px; }
+  .palrow label { flex: 1; }
+  #pallet { font: 500 20px var(--mono); }
+  #dimBtn { white-space: nowrap; }
+  #dimBtn.set { color: var(--ok-fg); }
+  #dimBox { margin-bottom: 10px; }
+  #live { margin-top: 10px; border-radius: 12px; overflow: hidden; position: relative; background: #000; }
+  /* portrait phone video is very tall; crop to a short band so the result stays on screen */
+  #live video { display: block; width: 100%; height: 34vh; object-fit: cover; }
+  #live::after { content: ""; position: absolute; left: 8%; right: 8%; top: 50%; border-top: 2px solid rgba(255, 60, 60, .8); }
+  #zoomBox { flex-direction: row; align-items: center; gap: 10px; margin-top: 8px; }
+  #zoomBox input { flex: 1; min-height: 32px; padding: 0; }
+  #result { font-size: 20px; font-weight: 700; padding: 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line);
+    margin: 10px 0 8px; overflow-wrap: anywhere; white-space: pre-line; min-height: 64px; }
   #result.ok { background: var(--ok); color: var(--ok-fg); border-color: transparent; }
   #result.over { background: var(--warn); color: var(--warn-fg); border-color: transparent; }
   #result.bad { background: var(--bad); color: var(--bad-fg); border-color: transparent; }
-  #stats { font-weight: 600; font-variant-numeric: tabular-nums; }
-  .wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
-  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; }
-  tr.ok td { background: var(--ok); } tr.part td { background: var(--part); } tr.over td { background: var(--warn); }
-  .mono { font-family: var(--mono); }
-  #result { white-space: pre-line; }
-  #result.done { font-size: 26px; outline: 3px solid var(--ok-fg); }
-  #orders { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-variant-numeric: tabular-nums; }
-  .ord { font: 500 13px var(--mono); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
-  .ord.ok { background: var(--ok); color: var(--ok-fg); border-color: transparent; }
-  #reader { display: none; }
-  #live { width: 100%; max-width: 480px; border-radius: 8px; overflow: hidden; position: relative; }
-  /* portrait phone video is very tall; crop to a short band so the result stays on screen */
-  #live video { display: block; width: 100%; height: 38vh; object-fit: cover; }
-  #live::after { content: ""; position: absolute; left: 8%; right: 8%; top: 50%; border-top: 2px solid rgba(255, 60, 60, .8); }
-  /* while the camera runs, hide setup so pallet, camera and result fit one screen */
-  body.scanning .setup { display: none !important; }
-  body.scanning #result { margin-top: 8px; }
-  #fix:not(:empty) { margin: 6px 0; }
-  button.big { font-size: 20px; padding: 14px 22px; }
-  #sugg { display: grid; gap: 4px; margin: -4px 0 10px; }
-  #sugg button { text-align: left; font: 400 14px var(--sans); padding: 8px 10px; overflow-wrap: anywhere; }
+  #result.done { font-size: 24px; outline: 3px solid var(--ok-fg); }
+  #fix { display: grid; gap: 8px; }
+  #fix:not(:empty) { margin-bottom: 8px; }
+  #raw { margin-bottom: 10px; overflow-wrap: anywhere; }
+  .scanrow { display: flex; gap: 8px; }
+  #scan { flex: 1; min-width: 0; font: 500 18px var(--mono); }
+  #sugg { display: grid; gap: 6px; margin-top: 8px; }
+  #sugg button { display: block; text-align: left; font: 400 14px var(--sans); padding: 10px 12px; overflow-wrap: anywhere; }
   #sugg button b { font-family: var(--mono); }
   #sugg .done { opacity: .6; }
-  #find { flex: 1 1 260px; min-width: 0; }
-  .palIn { width: 6.5em; font: 500 14px var(--mono); padding: 4px 6px; }
+  #camTools { margin-top: 12px; }
+  #camTools .stack { padding-top: 4px; }
+
+  /* lines tab */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .chips label { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 8px 16px; min-height: 40px; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; }
+  .chips input { position: absolute; opacity: 0; pointer-events: none; }
+  .chips label:has(:checked) { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chips label:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #orders { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .ord { font: 500 13px var(--mono); padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+  .ord.ok { background: var(--ok); color: var(--ok-fg); border-color: transparent; }
+  .line { display: grid; gap: 4px; overflow-wrap: anywhere; }
+  .line.ok { background: var(--ok); color: var(--ok-fg); border-color: transparent; }
+  .line.ok .hint { color: inherit; opacity: .8; }
+  .l1 { display: flex; gap: 10px; align-items: baseline; }
+  .l1 > b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .l1 > span { white-space: nowrap; }
+  .line label { flex-direction: row; align-items: center; gap: 8px; margin-top: 4px; color: inherit; font-size: 14px; }
+  .palIn { width: 9em; min-height: 40px; padding: 6px 10px; font: 500 15px var(--mono); }
+
+  /* pallets tab */
+  .dims { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .dims input { padding: 8px; font: 500 16px var(--mono); text-align: center; }
+  .pcard { display: grid; gap: 10px; }
+  .tag { font-size: 13px; font-weight: 600; color: var(--ok-fg); }
+  .tag.warn { color: var(--warn-fg); background: var(--warn); padding: 2px 8px; border-radius: 6px; }
+  .plines { margin: 0; padding-left: 22px; font-size: 14px; display: grid; gap: 4px; }
+
+  /* history tab */
+  .hrow { display: flex; gap: 8px; align-items: center; }
+  .hrow > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .hrow.ok { background: var(--ok); color: var(--ok-fg); border-color: transparent; }
+  .hrow.ok .hint { color: inherit; }
+
+  #toast { position: fixed; left: var(--side); right: var(--side); bottom: calc(72px + env(safe-area-inset-bottom, 0px)); z-index: 20;
+    background: var(--fg); color: var(--bg); padding: 12px 14px; border-radius: 10px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+  #reader { display: none; }
+
   /* printed pallet content lists: only #print shows on paper, one pallet per page */
   #print { display: none; }
   @media print {
     @page { margin: 12mm; }
-    :root { padding: 0 !important; }
     body { background: #fff !important; color: #000 !important; padding: 0 !important; font-size: 10pt; }
     body > *:not(#print) { display: none !important; }
     #print { display: block; }
     .plist { break-after: page; }
     .plist:last-child { break-after: auto; }
     .plist h1 { font-size: 22pt; margin: 0 0 2mm; }
-    .plist .meta { margin-bottom: 4mm; }
+    .plist .meta { margin-bottom: 2mm; }
+    .plist .dimline { font-size: 13pt; font-weight: 700; margin-bottom: 4mm; }
     .plist table { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
     .plist th, .plist td { border: 0.5pt solid #000; padding: 1.5mm 2mm; text-align: left; white-space: normal; background: none !important; color: #000 !important; }
     .plist thead { display: table-header-group; }
     .plist tr { break-inside: avoid; }
     .plist .sign { margin-top: 10mm; display: flex; gap: 20mm; }
   }
-  [hidden] { display: none !important; }
-  * { box-sizing: border-box; }
-  details { flex-basis: 100%; } summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
-  textarea { font: 13px var(--mono); width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); margin: 6px 0; }
-  .hint { color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
 
-<h1 class="setup">Pallet Scan Check</h1>
+<header class="top">
+  <div class="t1"><span id="orderName"></span><span id="stats"></span></div>
+  <div class="bar"><i id="barFill"></i></div>
+</header>
 
-<div class="row setup">
-  <label>Order file (Excel or CSV)<input type="file" id="file"></label>
-  <label>Part number column<select id="colPart"></select></label>
-  <details id="pasteBox"><summary>Or paste order rows</summary>
-    <textarea id="paste" rows="5" placeholder="Copy the rows (with the header row) from Excel or the CSV and paste here" aria-label="Order rows"></textarea>
-    <button id="pasteGo">Load pasted rows</button>
-  </details>
-  <label>Batch / serial column<select id="colAlt"></select></label>
-</div>
-
-<div class="row">
-  <label>Current pallet<input id="pallet" placeholder="PLT-01" autocomplete="off"></label>
-  <input id="scan" placeholder="Type batch, serial, label or part no." autocomplete="off" enterkeyhint="go" aria-label="Batch, serial, label or part number">
-  <button id="go">Check</button>
-  <button class="primary" id="liveBtn">Start camera</button>
-</div>
-<div id="sugg"></div>
-<div class="row setup">
+<main>
+<section id="tab-scan">
+  <div class="palrow">
+    <label class="f">Current pallet<input id="pallet" list="palList" placeholder="PLT-01" autocomplete="off" enterkeyhint="done"></label>
+    <button id="dimBtn" aria-expanded="false">Size / weight</button>
+  </div>
+  <datalist id="palList"></datalist>
+  <div id="dimBox" class="card" hidden></div>
+  <div class="row2">
+    <button class="primary big" id="liveBtn">Start camera</button>
+    <button class="big" id="photoBtn">Photo scan</button>
+  </div>
   <input type="file" id="photo" accept="image/*" capture="environment" hidden>
-  <button id="photoBtn">Photo scan</button>
-  <button id="export">Export CSV</button>
-  <select id="palSel" aria-label="Pallet to print"></select>
-  <button id="printBtn">Print pallet list</button>
-  <button id="palXlsx">Export all pallets (Excel)</button>
-  <button id="reset">Clear scans</button>
-</div>
+  <div id="live" hidden><video id="vid" playsinline muted></video></div>
+  <label class="f" id="zoomBox" hidden>Zoom <span id="zoomVal">1×</span><input type="range" id="zoom" min="1" max="1" step="0.1" value="1"></label>
+  <div id="result" role="status">Example order loaded. Load your own in the History tab.</div>
+  <div id="fix"></div>
+  <div id="raw" class="hint"></div>
+  <div class="scanrow">
+    <input id="scan" placeholder="Type batch, serial, label or part no." autocomplete="off" enterkeyhint="go" aria-label="Batch, serial, label or part number">
+    <button id="go">Check</button>
+  </div>
+  <div id="sugg"></div>
+  <details id="camTools" hidden><summary>Camera settings</summary>
+    <div class="stack"><label class="f">Camera<select id="camSel"></select></label><div id="camInfo" class="hint"></div></div>
+  </details>
+</section>
+
+<section id="tab-lines" hidden>
+  <input id="find" type="search" placeholder="Search part, batch, description, order, pallet…" autocomplete="off" aria-label="Search all lines">
+  <div class="chips" role="radiogroup" aria-label="Show">
+    <label><input type="radio" name="flt" value="" checked>All</label>
+    <label><input type="radio" name="flt" value="todo">Not scanned</label>
+    <label><input type="radio" name="flt" value="done">Scanned</label>
+  </div>
+  <div id="orders"></div>
+  <p id="findInfo" class="hint"></p>
+  <div id="lines" class="stack"></div>
+</section>
+
+<section id="tab-pallets" hidden>
+  <div class="row2">
+    <button id="printAll">Print all lists</button>
+    <button id="palXlsx">Export Excel</button>
+  </div>
+  <h2>Pallets</h2>
+  <div id="pallets" class="stack"></div>
+</section>
+
+<section id="tab-hist" hidden>
+  <h2>Load new order</h2>
+  <div class="card stack">
+    <label class="btn primary big">Choose order file (Excel or CSV)<input type="file" id="file" hidden></label>
+    <details id="pasteBox"><summary>Or paste order rows</summary>
+      <textarea id="paste" rows="5" placeholder="Copy the rows (with the header row) from Excel or the CSV and paste here" aria-label="Order rows"></textarea>
+      <button id="pasteGo">Load pasted rows</button>
+    </details>
+    <span class="hint">The current order and its scans are kept below.</span>
+  </div>
+  <h2>Current order</h2>
+  <div class="card stack">
+    <div id="curInfo"></div>
+    <label class="f">Part number column<select id="colPart"></select></label>
+    <label class="f">Batch / serial column<select id="colAlt"></select></label>
+    <div class="row2"><button id="export">Export CSV</button><button id="reset">Clear scans</button></div>
+  </div>
+  <h2>Earlier orders</h2>
+  <p id="histInfo" class="hint"></p>
+  <div id="hist" class="stack"></div>
+  <p class="hint">Everything is saved on this phone only. Export before switching phones or clearing browser data.</p>
+</section>
+</main>
+
+<nav class="tabs" aria-label="Sections">
+  <button data-tab="scan" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 8v8M11 8v8M14 8v8M17 8v8"/></svg>Scan</button>
+  <button data-tab="lines"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>Lines<span class="badge" id="badge" hidden></span></button>
+  <button data-tab="pallets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8"/></svg>Pallets</button>
+  <button data-tab="hist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
+</nav>
+
+<div id="toast" role="status" hidden></div>
 <div id="reader"></div>
-<div id="live" hidden><video id="vid" playsinline muted></video></div>
-
-<div id="result">Example order loaded. Load your own file to replace it.</div>
-<div id="fix"></div>
-<div id="raw" class="hint"></div>
-<div id="stats"></div>
-<div id="orders"></div>
-<div class="row" id="camTools" hidden>
-  <label>Camera<select id="camSel"></select></label>
-  <label id="zoomBox" hidden>Zoom <span id="zoomVal">1×</span><input type="range" id="zoom" min="1" max="1" step="0.1" value="1"></label>
-</div>
-<div id="camInfo" class="hint"></div>
-
-
-<h2>Order lines</h2>
-<div class="row"><input id="find" type="search" placeholder="Search all lines: part, batch, description, order, pallet…" autocomplete="off" aria-label="Search all lines"><span id="findInfo" class="hint"></span></div>
-<div class="wrap"><table id="tbl"></table></div>
 <section id="print"></section>
-<p class="hint">Scans are saved on this device only. Export CSV before switching phones or clearing browser data.</p>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -155,6 +254,7 @@ const EXAMPLE = {
   partCol: 'Part Number', qtyCol: 'Qty', scans: {},
 };
 let S = structuredClone(EXAMPLE);
+let tab = 'scan';
 const save = () => { try { localStorage.setItem('scanState', JSON.stringify(S)); } catch {} };
 try { const s = JSON.parse(localStorage.getItem('scanState')); if (s && s.rows) S = s; } catch {}
 // orders saved by an older version lack newer column picks; fill them in so no reload is needed
@@ -188,7 +288,12 @@ const isDone = i => !!S.scans[i]?.length;
 const palletOf = i => (S.scans[i] || []).map(s => s.pallet).join(', ');
 const orderDone = o => S.rows.every((r, i) => r[S.orderCol] !== o || isDone(i));
 
-function show(cls, text) { $('result').className = cls; $('result').textContent = text; }
+// result card lives on the Scan tab; on other tabs the message also pops up as a toast
+let toastT;
+function show(cls, text) {
+  $('result').className = cls; $('result').textContent = text;
+  if (tab !== 'scan' && text) { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toastT); toastT = setTimeout(() => $('toast').hidden = true, 3500); }
+}
 const qtyOf = i => Number(S.rows[i][S.qtyCol]) || 1;
 // what you need to see on a scan: part · BN/SN · qty · T order + pos
 function describe(lines) {
@@ -230,7 +335,7 @@ function handle(code) {
     // wrong pallet? re-scan with the right pallet set, then move the whole batch group in one tap
     if (palletOf(i) !== pallet) {
       const group = hits.filter(h => !S.orderCol || S.rows[h][S.orderCol] === S.rows[i][S.orderCol]);
-      $('fix').innerHTML = `<button class="primary" id="moveBtn">Move to pallet ${esc(pallet)}</button>`;
+      $('fix').innerHTML = `<button class="primary big" id="moveBtn">Move to pallet ${esc(pallet)}</button>`;
       $('moveBtn').onclick = () => {
         group.forEach(h => { S.scans[h] = [{ pallet, n: 1 }]; });
         $('fix').innerHTML = '';
@@ -256,42 +361,91 @@ function checkLines(lines, pallet) {
   // more than one piece: tick only after you confirm they're all there
   pending = lines;
   show('over', `? ${describe(lines)} · pallet ${pallet}\nAre all ${qty} pcs there?`);
-  $('fix').innerHTML = `<button class="primary big" id="qtyOk">Confirm ${qty} pcs</button> <button id="qtyNo">Cancel</button>`;
+  $('fix').innerHTML = `<button class="primary big" id="qtyOk">Confirm ${qty} pcs</button><button id="qtyNo">Cancel</button>`;
   $('qtyOk').onclick = () => { pending = null; $('fix').innerHTML = ''; tick(lines, pallet); };
   $('qtyNo').onclick = () => { pending = null; $('fix').innerHTML = ''; show('', `Not checked: ${describe(lines)}`); };
   try { navigator.vibrate?.([80, 80, 80]); } catch {}
 }
 
+// Pallet size and weight, stored with the order: S.pallets[pallet] = { l, w, h, kg } (cm, kg)
+const DIMS = [['l', 'L cm'], ['w', 'W cm'], ['h', 'H cm'], ['kg', 'kg']];
+const dimOf = p => S.pallets?.[p] || {};
+const dimFull = p => DIMS.every(([k]) => dimOf(p)[k]);
+function dimText(p) {
+  const d = dimOf(p);
+  return [d.l && d.w && d.h ? `${d.l} × ${d.w} × ${d.h} cm` : '', d.kg ? `${d.kg} kg` : ''].filter(Boolean).join(' · ');
+}
+const dimFields = p => `<div class="dims">${DIMS.map(([k, lab]) =>
+  `<label class="f">${lab}<input type="number" inputmode="decimal" min="0" step="any" data-p="${esc(p)}" data-k="${k}" value="${esc(dimOf(p)[k] ?? '')}" aria-label="Pallet ${esc(p)} ${lab}"></label>`).join('')}</div>`;
+const tagHtml = p => `<span class="tag${dimFull(p) ? '' : ' warn'}" data-tag="${esc(p)}">${esc(dimFull(p) ? dimText(p) : `⚠ ${dimText(p) ? dimText(p) + ' · incomplete' : 'no size/weight'}`)}</span>`;
+const curPal = () => $('pallet').value.trim();
+function renderDimBox() {
+  const p = curPal();
+  $('dimBox').innerHTML = p ? `<div class="hint" style="margin-bottom:6px">Pallet <b>${esc(p)}</b> size and weight</div>${dimFields(p)}` : '<span class="hint">Set the current pallet first.</span>';
+}
+const updDimBtn = () => { const p = curPal(); $('dimBtn').classList.toggle('set', !!p && dimFull(p)); $('dimBtn').textContent = p && dimFull(p) ? '✓ Size / weight' : 'Size / weight'; };
+$('dimBtn').onclick = () => {
+  const open = $('dimBox').hidden;
+  if (open) renderDimBox();
+  $('dimBox').hidden = !open; $('dimBtn').setAttribute('aria-expanded', open);
+};
+// typing a size/weight saves at once; no re-render, so the keyboard stays on the field
+document.addEventListener('input', e => {
+  const { p, k } = e.target.dataset; if (!k) return;
+  ((S.pallets ??= {})[p] ??= {})[k] = e.target.value; save();
+  document.querySelectorAll('[data-k]').forEach(x => { if (x !== e.target && x.dataset.p === p && x.dataset.k === k) x.value = e.target.value; });
+  document.querySelectorAll('[data-tag]').forEach(x => { if (x.dataset.tag === p) x.outerHTML = tagHtml(p); });
+  updDimBtn();
+});
+
 function render() {
   const fill = (sel, val) => { sel.innerHTML = S.headers.map(h => `<option${h === val ? ' selected' : ''}>${esc(h)}</option>`).join(''); };
   fill($('colPart'), S.partCol); fill($('colAlt'), S.altCol);
   $('colAlt').insertAdjacentHTML('afterbegin', `<option value=""${S.altCol ? '' : ' selected'}>(none)</option>`);
-  // hide columns that hold the same value on every line (order no., customer, currency…); export keeps them
-  const shown = S.headers.filter(h => [S.partCol, S.qtyCol, S.altCol].includes(h) || S.rows.length < 2 || new Set(S.rows.map(r => String(r[h]).trim())).size > 1);
-  // the columns you look for first go first: order, pos, part, batch/serial, label
-  const key = [S.orderCol, S.posCol, S.partCol, S.altCol, S.labelCol].filter(h => h && shown.includes(h));
-  const cols = [...new Set([...key, ...shown])];
+  const desc = S.headers.find(h => /desc/i.test(h));
+  // other columns that differ between lines go in a small detail line; columns with one value everywhere are left out (export keeps them)
+  const extra = S.headers.filter(h => ![S.orderCol, S.posCol, S.partCol, S.altCol, S.labelCol, S.qtyCol, desc].includes(h)
+    && S.rows.length > 1 && new Set(S.rows.map(r => String(r[h]).trim())).size > 1);
+  const q = norm($('find').value), flt = document.querySelector('[name=flt]:checked').value;
   let done = 0, shownRows = 0;
-  const q = norm($('find').value);
-  const body = S.rows.map((r, i) => {
-    if (isDone(i)) done++;
+  const cards = S.rows.map((r, i) => {
+    const d = isDone(i); if (d) done++;
     // search: any column or the pallet contains the text (dashes, spaces, dots ignored)
-    const match = !q || [...Object.values(r), palletOf(i)].some(v => norm(v).includes(q));
-    if (match) shownRows++;
-    // ✓ and Pallet first so they're visible on a phone without scrolling sideways
-    return `<tr class="${isDone(i) ? 'ok' : ''}"${match ? '' : ' hidden'}><td>${isDone(i) ? '✓' : ''}</td><td><input class="palIn" data-i="${i}" value="${esc(palletOf(i))}" aria-label="Pallet for line ${i + 1}" autocomplete="off"></td>${cols.map(h => `<td${h === S.partCol || h === S.altCol ? ' class="mono"' : ''}>${esc(r[h])}</td>`).join('')}</tr>`;
+    if (q && ![...Object.values(r), palletOf(i)].some(v => norm(v).includes(q))) return '';
+    if ((flt === 'todo' && d) || (flt === 'done' && !d)) return '';
+    shownRows++;
+    const info = [S.orderCol || S.posCol ? `${S.orderCol ? r[S.orderCol] : ''} pos ${S.posCol ? r[S.posCol] : i + 1}` : `line ${i + 1}`,
+      S.altCol && r[S.altCol] ? `BN/SN ${r[S.altCol]}` : '', S.labelCol && r[S.labelCol] && r[S.labelCol] !== '0' ? `LB ${r[S.labelCol]}` : '',
+      ...extra.filter(h => r[h]).map(h => `${h}: ${r[h]}`)].filter(Boolean);
+    return `<div class="card line${d ? ' ok' : ''}"><div class="l1"><b class="mono">${esc(r[S.partCol])}</b><span>qty ${esc(r[S.qtyCol])}</span>${d ? '<span>✓</span>' : ''}</div>
+      ${desc && r[desc] ? `<div>${esc(r[desc])}</div>` : ''}<div class="hint">${info.map(esc).join(' · ')}</div>
+      <label class="f">Pallet<input class="palIn" data-i="${i}" value="${esc(palletOf(i))}" list="palList" autocomplete="off" aria-label="Pallet for line ${i + 1}"></label></div>`;
   }).join('');
-  $('tbl').innerHTML = `<tr><th></th><th>Pallet</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr>` + body;
-  $('stats').textContent = `${done} of ${S.rows.length} lines complete` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
-  $('findInfo').textContent = q ? `${shownRows} of ${S.rows.length} lines match` : '';
-  const pick = $('palSel').value;
-  $('palSel').innerHTML = '<option value="">All pallets</option>' + palletList().map(p => `<option${p === pick ? ' selected' : ''}>${esc(p)}</option>`).join('');
+  $('lines').innerHTML = cards || '<p class="hint">No lines to show.</p>';
+  $('findInfo').textContent = `${shownRows} of ${S.rows.length} lines shown` + (S.skipped ? ` · ${S.skipped} cancelled lines left out` : '');
+  const left = S.rows.length - done;
+  $('orderName').textContent = S.name || 'Example order';
+  $('stats').textContent = `${done}/${S.rows.length}`;
+  $('barFill').style.width = `${S.rows.length ? 100 * done / S.rows.length : 0}%`;
+  $('badge').hidden = !left; $('badge').textContent = left;
+  $('curInfo').innerHTML = `<b>${esc(S.name || 'Example order')}</b><br><span class="hint">${done} of ${S.rows.length} lines scanned${left ? ` · ${left} not scanned` : ''}</span>`;
   const orders = S.orderCol ? [...new Set(S.rows.map(r => r[S.orderCol]))] : [];
   $('orders').innerHTML = orders.map(o => {
     const idx = S.rows.map((r, i) => i).filter(i => S.rows[i][S.orderCol] === o);
     const d = idx.filter(isDone).length;
     return `<span class="ord${d === idx.length ? ' ok' : ''}">${d === idx.length ? '✓ ' : ''}${esc(o)} · ${d}/${idx.length}</span>`;
   }).join('');
+  const pals = palletList();
+  $('palList').innerHTML = pals.map(p => `<option value="${esc(p)}">`).join('');
+  $('pallets').innerHTML = pals.length ? pals.map(p => {
+    const lines = palletLines(p);
+    return `<div class="card pcard"><div class="l1"><b>Pallet ${esc(p)}</b><span class="hint">${lines.length} line${lines.length === 1 ? '' : 's'}</span></div>
+      ${tagHtml(p)}${dimFields(p)}
+      <details><summary>Contents</summary><ol class="plines">${lines.map(i => `<li><b class="mono">${esc(S.rows[i][S.partCol])}</b> · qty ${esc(S.rows[i][S.qtyCol])}${S.orderCol ? ` · ${esc(S.rows[i][S.orderCol])}` : ''}${S.posCol ? ` pos ${esc(S.rows[i][S.posCol])}` : ''}</li>`).join('')}</ol></details>
+      <button data-print="${esc(p)}">Print list</button></div>`;
+  }).join('') : '<p class="hint">No pallets yet. Scan lines with a pallet set and they show up here.</p>';
+  updDimBtn();
+  renderHistory();
 }
 
 // Two-tap confirm, since the viewer blocks confirm() dialogs
@@ -300,6 +454,16 @@ function armed(btn, label, action) {
   btn.dataset.armed = 1; btn.textContent = 'Tap again to confirm';
   setTimeout(() => { delete btn.dataset.armed; btn.textContent = label; }, 3000);
 }
+
+// Tabs; the camera stops when you leave the Scan tab
+function setTab(t) {
+  tab = t;
+  document.querySelectorAll('main > section').forEach(s => s.hidden = s.id !== 'tab-' + t);
+  document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === t ? 'page' : 'false'));
+  if (t !== 'scan' && stream) stopCam();
+  window.scrollTo(0, 0);
+}
+document.querySelector('nav.tabs').onclick = e => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); };
 
 $('file').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
@@ -315,29 +479,60 @@ $('pasteGo').onclick = () => {
   catch (err) { show('bad', `Could not read the pasted rows: ${err.message}`); }
 };
 function load(wb, name) {
-  {
-    // raw: false keeps "1.00" / dates as shown in the file; trim the padding some exports add
-    const all = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false })
-      .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.trim(), String(v).trim()])));
-    const rows = all.filter(r => !Object.values(r).some(v => /^CANCEL/i.test(v)));
-    if (!rows.length) return show('bad', 'That file has no open lines on its first sheet.');
-    const headers = Object.keys(rows[0]);
-    const guess = re => headers.find(h => re.test(h));
-    const next = { headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
-      altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', labelCol: guess(/label/i) || '', scans: {}, skipped: all.length - rows.length };
-    const apply = () => { S = next; $('fix').innerHTML = ''; show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`); save(); render(); };
-    // a new file wipes the current scans: never do that silently
-    const had = Object.keys(S.scans).length;
-    if (!had) return apply();
-    show('over', `⚠ Loading ${name} replaces the current order and clears ${had} scanned lines. Export them first if you still need them.`);
-    $('fix').innerHTML = '<button id="keepBtn">Keep current order</button> <button class="primary" id="replaceBtn">Replace and clear scans</button>';
-    $('replaceBtn').onclick = apply;
-    $('keepBtn').onclick = () => { $('fix').innerHTML = ''; show('', 'Kept the current order and its scans.'); };
-  }
+  // raw: false keeps "1.00" / dates as shown in the file; trim the padding some exports add
+  const all = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false })
+    .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.trim(), String(v).trim()])));
+  const rows = all.filter(r => !Object.values(r).some(v => /^CANCEL/i.test(v)));
+  if (!rows.length) return show('bad', 'That file has no open lines on its first sheet.');
+  const headers = Object.keys(rows[0]);
+  const guess = re => headers.find(h => re.test(h));
+  const next = { name, loadedAt: Date.now(), headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
+    altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', labelCol: guess(/label/i) || '', scans: {}, pallets: {}, skipped: all.length - rows.length };
+  // the current order and its scans move to History, so a new file never loses them
+  if (!archive()) return;
+  S = next; $('fix').innerHTML = ''; pending = null;
+  show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`); save(); render();
 }
+
+// Order history: every earlier order with its scans, newest first. Reopen one to keep scanning it.
+let H = [];
+try { H = JSON.parse(localStorage.getItem('scanHistory')) || []; } catch {}
+const saveH = () => { try { localStorage.setItem('scanHistory', JSON.stringify(H)); return true; } catch { return false; } };
+// put the current order into History; false (and nothing changes) if the phone's storage is full
+function archive() {
+  if (!S.loadedAt && !Object.keys(S.scans).length) return true; // untouched example order: nothing to keep
+  S.loadedAt ??= Date.now();
+  const before = H;
+  H = [S, ...H.filter(o => o.loadedAt !== S.loadedAt)];
+  if (saveH()) return true;
+  H = before;
+  show('bad', '✗ Storage full: delete old orders in the History tab, then try again.');
+  return false;
+}
+const doneOf = o => o.rows.filter((r, i) => o.scans[i]?.length).length;
+function renderHistory() {
+  $('histInfo').textContent = H.length ? '' : 'No earlier orders yet. When you load a new order, the current one is kept here.';
+  $('hist').innerHTML = H.map((o, k) => {
+    const d = doneOf(o), left = o.rows.length - d;
+    const when = new Date(o.loadedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+    return `<div class="card hrow${left ? '' : ' ok'}"><span><b>${esc(o.name || 'Order loaded earlier')}</b><br><span class="hint">${esc(when)} · ${d}/${o.rows.length} scanned${left ? ` · <b>${left} not scanned</b>` : ' · complete'}</span></span>
+      <button data-open="${k}">Open</button><button data-del="${k}">Delete</button></div>`;
+  }).join('');
+}
+$('hist').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.open != null) {
+    const o = H[+b.dataset.open];
+    if (pending || !archive()) return;
+    H = H.filter(x => x !== o); saveH();
+    S = o; $('fix').innerHTML = ''; save(); render(); setTab('scan');
+    show('', `Opened ${o.name || 'earlier order'}: ${o.rows.length - doneOf(o)} lines not scanned yet.`);
+  } else armed(b, 'Delete', () => { H.splice(+b.dataset.del, 1); saveH(); render(); });
+};
 // ask Chrome not to delete this app's saved scans when the phone runs low on storage
 try { navigator.storage?.persist?.(); } catch {}
-$('find').oninput = () => render();
+$('find').oninput = render;
+document.querySelector('.chips').onchange = render;
 
 // Typing suggestions: from 3 characters, list lines whose batch/serial, label or part no. contains the text
 const codeOf = i => [S.altCol, S.labelCol, S.partCol].map(c => c && S.rows[i][c]).find(v => v && v !== '0');
@@ -375,9 +570,8 @@ const palletCols = () => { const desc = S.headers.find(h => /desc/i.test(h));
 const palletLines = p => S.rows.map((r, i) => i).filter(i => isDone(i) && palletOf(i) === p)
   .sort((a, b) => byNum(S.rows[a][S.orderCol] ?? '', S.rows[b][S.orderCol] ?? '') || byNum(S.rows[a][S.posCol] ?? '', S.rows[b][S.posCol] ?? ''));
 
-// Printable content list per pallet: one page each
-$('printBtn').onclick = () => {
-  const list = $('palSel').value ? [$('palSel').value] : palletList();
+// Printable content list per pallet: one page each, with size and weight under the title
+function printPallets(list) {
   if (!list.length) return show('bad', 'Nothing scanned yet, so there is no pallet list to print.');
   const cols = palletCols();
   const now = new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
@@ -385,16 +579,19 @@ $('printBtn').onclick = () => {
     const lines = palletLines(p);
     const orders = S.orderCol ? [...new Set(lines.map(i => S.rows[i][S.orderCol]))] : [];
     return `<div class="plist"><h1>Pallet ${esc(p)}</h1>
+      <div class="dimline">${esc(dimText(p) || 'Size: ________ cm · Weight: ______ kg')}</div>
       <div class="meta">${lines.length} line${lines.length === 1 ? '' : 's'}${orders.length ? ` · orders ${orders.map(esc).join(', ')}` : ''} · printed ${esc(now)}</div>
       <table><thead><tr><th>#</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
       <tbody>${lines.map((i, n) => `<tr><td>${n + 1}</td>${cols.map(h => `<td>${esc(S.rows[i][h])}</td>`).join('')}</tr>`).join('')}</tbody></table>
       <div class="sign"><span>Checked by: ____________________</span><span>Date: ____________</span></div></div>`;
   }).join('');
   window.print();
-};
+}
+$('printAll').onclick = () => printPallets(palletList());
+$('pallets').onclick = e => { const b = e.target.closest('[data-print]'); if (b) printPallets([b.dataset.print]); };
 
-// Pallet cell in the table: typing a pallet sets/changes it and marks the line checked; clearing it un-marks the line
-$('tbl').onchange = e => {
+// Pallet field on a line card: typing a pallet sets/changes it and marks the line checked; clearing it un-marks the line
+$('lines').onchange = e => {
   const i = e.target.dataset?.i; if (i == null) return;
   const v = e.target.value.trim();
   if (v) S.scans[i] = [{ pallet: v, n: 1 }]; else delete S.scans[i];
@@ -403,8 +600,8 @@ $('tbl').onchange = e => {
 };
 // current pallet stays until changed, also across app restarts
 try { $('pallet').value = localStorage.getItem('pallet') || ''; } catch {}
-$('pallet').oninput = e => { try { localStorage.setItem('pallet', e.target.value); } catch {} };
-$('colPart').onchange =e => { S.partCol = e.target.value; save(); render(); };
+$('pallet').oninput = e => { try { localStorage.setItem('pallet', e.target.value); } catch {} if (!$('dimBox').hidden) renderDimBox(); updDimBtn(); };
+$('colPart').onchange = e => { S.partCol = e.target.value; save(); render(); };
 $('colAlt').onchange = e => { S.altCol = e.target.value; save(); render(); };
 // Show exactly what the scanner/photo read, so a wrong or partial code is visible
 const showRaw = codes => { $('raw').innerHTML = codes.length ? 'Barcode said: ' + codes.map(c => `<code class="mono">${esc(c)}</code>`).join(' · ') : ''; };
@@ -430,8 +627,7 @@ let stream = null, track = null, frames = 0, lastCode = '', lastAt = 0;
 const camId = () => { try { return localStorage.getItem('camId') || ''; } catch { return ''; } };
 function stopCam() {
   stream?.getTracks().forEach(t => t.stop()); stream = track = null;
-  $('live').hidden = true; $('camTools').hidden = true; $('camInfo').textContent = ''; $('liveBtn').textContent = 'Start camera';
-  document.body.classList.remove('scanning');
+  $('live').hidden = true; $('camTools').hidden = true; $('zoomBox').hidden = true; $('camInfo').textContent = ''; $('liveBtn').textContent = 'Start camera';
 }
 async function startCam() {
   if (!('BarcodeDetector' in window)) return show('bad', 'This browser has no built-in barcode reader. Use Chrome on Android, or Photo scan.');
@@ -446,7 +642,6 @@ async function startCam() {
   track = stream.getVideoTracks()[0];
   $('vid').srcObject = stream; await $('vid').play();
   $('live').hidden = false; $('camTools').hidden = false; $('liveBtn').textContent = 'Stop camera';
-  document.body.classList.add('scanning'); window.scrollTo(0, 0);
   const caps = track.getCapabilities?.() || {};
   try { if (caps.focusMode?.includes('continuous')) await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
   // many Androids reach the 0.6 lens by zooming below 1×, not as a separate camera
@@ -508,7 +703,7 @@ $('photo').onchange = async e => {
   handle(hit ?? codes[0]);
 };
 
-$('export').onclick = async () => {
+$('export').onclick = () => {
   const out = S.rows.map((r, i) => ({ ...r, Check: isDone(i) ? 'OK' : 'NOT SCANNED', Pallet: palletOf(i) }));
   const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(out));
   const a = document.createElement('a');
@@ -517,17 +712,22 @@ $('export').onclick = async () => {
   show('ok', 'Saved scan-results.csv to Downloads.');
 };
 
-// All pallet lists in one Excel file: an "All pallets" sheet, then one sheet per pallet
+// Excel: "Pallet summary" (size, weight, total), "All pallets" (every line), then one sheet per pallet
+const numOrBlank = v => v === '' || v == null ? '' : Number(v);
+const dimCols = p => { const d = dimOf(p); return { 'Length cm': numOrBlank(d.l), 'Width cm': numOrBlank(d.w), 'Height cm': numOrBlank(d.h), 'Weight kg': numOrBlank(d.kg) }; };
 $('palXlsx').onclick = () => {
   const list = palletList();
   if (!list.length) return show('bad', 'Nothing scanned yet, so there are no pallets to export.');
   const cols = palletCols();
+  const summary = list.map(p => ({ Pallet: p, Lines: palletLines(p).length, ...dimCols(p) }));
+  summary.push({ Pallet: 'Total', Lines: summary.reduce((a, r) => a + r.Lines, 0), 'Weight kg': summary.reduce((a, r) => a + (Number(r['Weight kg']) || 0), 0) });
   const sheet = (ps, withPallet) => XLSX.utils.json_to_sheet(ps.flatMap(p => palletLines(p).map(i =>
-    ({ ...(withPallet ? { Pallet: p } : {}), ...Object.fromEntries(cols.map(h => [h, S.rows[i][h]])) }))));
+    ({ ...(withPallet ? { Pallet: p, ...dimCols(p) } : {}), ...Object.fromEntries(cols.map(h => [h, S.rows[i][h]])) }))));
   const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Pallet summary');
   XLSX.utils.book_append_sheet(wb, sheet(list, true), 'All pallets');
   // sheet names: max 31 chars, no : \ / ? * [ ], unique
-  const used = new Set(['All pallets']);
+  const used = new Set(['Pallet summary', 'All pallets']);
   list.forEach(p => {
     let name = `Pallet ${p}`.replace(/[:\\\/?*\[\]]/g, '-').slice(0, 31);
     for (let n = 2; used.has(name); n++) name = `${name.slice(0, 27)} (${n})`;
