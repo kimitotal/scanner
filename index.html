@@ -479,7 +479,7 @@ $('pasteGo').onclick = () => {
   try { load(XLSX.read(t, { type: 'string', raw: true }), 'pasted rows'); $('paste').value = ''; $('pasteBox').open = false; }
   catch (err) { show('bad', `Could not read the pasted rows: ${err.message}`); }
 };
-function load(wb, name) {
+async function load(wb, name) {
   // raw: false keeps "1.00" / dates as shown in the file; trim the padding some exports add
   const all = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false })
     .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.trim(), String(v).trim()])));
@@ -490,42 +490,59 @@ function load(wb, name) {
   const next = { name, loadedAt: Date.now(), headers, rows, partCol: guess(/part|p\/?n|item|article/i) || headers[0], qtyCol: guess(/qty|quant/i) || headers[0],
     altCol: guess(/serial|batch/i) || '', orderCol: guess(/^order\s*no/i) || '', posCol: guess(/^pos/i) || '', labelCol: guess(/label/i) || '', scans: {}, pallets: {}, skipped: all.length - rows.length };
   // the current order and its scans move to History, so a new file never loses them
-  if (!archive()) return;
+  if (!(await archive())) return;
   S = next; $('fix').innerHTML = ''; pending = null;
   show('', `Loaded ${rows.length} lines from ${name}. Check the column picks, then scan.`); save(); render();
 }
 
-// Order history: every earlier order with its scans, newest first. Reopen one to keep scanning it.
+// Order history: every earlier order with its scans, newest first, kept until deleted. Reopen one to keep scanning it.
+// Stored in IndexedDB: localStorage caps at ~5 MB, which months of orders outgrow.
 let H = [];
-try { H = JSON.parse(localStorage.getItem('scanHistory')) || []; } catch {}
-const saveH = () => { try { localStorage.setItem('scanHistory', JSON.stringify(H)); return true; } catch { return false; } };
-// put the current order into History; false (and nothing changes) if the phone's storage is full
-function archive() {
+const idb = new Promise((res, rej) => {
+  const r = indexedDB.open('palletScan', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+const idbDo = (mode, fn) => idb.then(db => new Promise((res, rej) => {
+  const t = db.transaction('kv', mode), req = fn(t.objectStore('kv'));
+  t.oncomplete = () => res(req.result); t.onerror = t.onabort = () => rej(t.error);
+}));
+const saveH = () => idbDo('readwrite', s => s.put(H, 'history')).then(() => true, () => false);
+// first run on this version: move the old localStorage history over, then free that space
+const hReady = idbDo('readonly', s => s.get('history')).then(async h => {
+  if (h) H = h;
+  else { try { H = JSON.parse(localStorage.getItem('scanHistory')) || []; } catch {} if (H.length && await saveH()) localStorage.removeItem('scanHistory'); }
+}).catch(() => { try { H = JSON.parse(localStorage.getItem('scanHistory')) || []; } catch {} }).then(() => render());
+// put the current order into History; false (and nothing changes) if it could not be saved
+async function archive() {
+  await hReady;
   if (!S.loadedAt && !Object.keys(S.scans).length) return true; // untouched example order: nothing to keep
   S.loadedAt ??= Date.now();
   const before = H;
   H = [S, ...H.filter(o => o.loadedAt !== S.loadedAt)];
-  if (saveH()) return true;
+  if (await saveH()) return true;
   H = before;
-  show('bad', '✗ Storage full: delete old orders in the History tab, then try again.');
+  show('bad', '✗ Could not save the current order to History, so nothing was changed. Export CSV first, then try again.');
   return false;
 }
 const doneOf = o => o.rows.filter((r, i) => o.scans[i]?.length).length;
 function renderHistory() {
-  $('histInfo').textContent = H.length ? '' : 'No earlier orders yet. When you load a new order, the current one is kept here.';
-  $('hist').innerHTML = H.map((o, k) => {
+  // the open order is listed first too, so every loaded order shows here
+  const cur = S.loadedAt || Object.keys(S.scans).length;
+  $('histInfo').textContent = H.length || cur ? '' : 'No orders yet. Every order you load is kept here.';
+  const row = (o, btns) => {
     const d = doneOf(o), left = o.rows.length - d;
-    const when = new Date(o.loadedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
-    return `<div class="card hrow${left ? '' : ' ok'}"><span><b>${esc(o.name || 'Order loaded earlier')}</b><br><span class="hint">${esc(when)} · ${d}/${o.rows.length} scanned${left ? ` · <b>${left} not scanned</b>` : ' · complete'}</span></span>
-      <button data-open="${k}">Open</button><button data-del="${k}">Delete</button></div>`;
-  }).join('');
+    const when = o.loadedAt ? new Date(o.loadedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : 'not saved yet';
+    return `<div class="card hrow${left ? '' : ' ok'}"><span><b>${esc(o.name || 'Order loaded earlier')}</b><br><span class="hint">${esc(when)} · ${d}/${o.rows.length} scanned${left ? ` · <b>${left} not scanned</b>` : ' · complete'}</span></span>${btns}</div>`;
+  };
+  $('hist').innerHTML = (cur ? row(S, '<b>Open now</b>') : '') + H.map((o, k) => row(o, `<button data-open="${k}">Open</button><button data-del="${k}">Delete</button>`)).join('');
 }
-$('hist').onclick = e => {
+$('hist').onclick = async e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.open != null) {
     const o = H[+b.dataset.open];
-    if (pending || !archive()) return;
-    H = H.filter(x => x !== o); saveH();
+    if (pending || !(await archive())) return;
+    H = H.filter(x => x !== o); await saveH();
     S = o; $('fix').innerHTML = ''; save(); render(); setTab('scan');
     show('', `Opened ${o.name || 'earlier order'}: ${o.rows.length - doneOf(o)} lines not scanned yet.`);
   } else armed(b, 'Delete', () => { H.splice(+b.dataset.del, 1); saveH(); render(); });
